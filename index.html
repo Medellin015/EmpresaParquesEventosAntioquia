@@ -128,10 +128,9 @@
       const [search, setSearch] = useState("");
       useEffect(() => { if (typeof lucide !== "undefined") lucide.createIcons(); });
 
-      // Filtrar contratos para que solo se vean los asignados al ejecutivo que inició sesión
+      // Filtrar contratos para que solo se vean los asignados ESTRICTAMENTE al ejecutivo que inició sesión
       const misContratos = contratos.filter(c => {
-        if (!c.ejecutivo) return true; // Si en la DB no hay ejecutivo, lo mostramos a todos como fallback
-        return c.ejecutivo.trim().toLowerCase() === user.name.trim().toLowerCase();
+        return c.ejecutivo && c.ejecutivo.trim().toLowerCase() === user.name.trim().toLowerCase();
       });
 
       const filtered = misContratos.filter(c => c.entidad.toLowerCase().includes(search.toLowerCase()));
@@ -247,7 +246,7 @@
         setIsModalOpen(false);
         setIsSyncing(true);
 
-        // Enviar a Google Sheets
+        // Enviar a la base de datos (Apps Script)
         fetch(GOOGLE_SHEETS_WEBAPP_URL, {
           method: 'POST',
           body: JSON.stringify({ action: 'save', record: newRecord })
@@ -429,7 +428,7 @@
 
       const showToast = (message, type = "success") => setToast({ message, type, key: Date.now() });
 
-      // Efecto para cargar los datos de Google Sheets al arrancar la App
+      // Efecto para cargar los datos de la base de datos al arrancar la App
       useEffect(() => {
         if (!GOOGLE_SHEETS_WEBAPP_URL || GOOGLE_SHEETS_WEBAPP_URL === "PEGAR_AQUI_LA_URL_DE_APPS_SCRIPT") {
           setLoadingDb(false);
@@ -447,7 +446,7 @@
              setLoadingDb(false);
           })
           .catch(e => {
-             showToast("Fallo al conectar con Google Sheets", "error");
+             showToast("Fallo al conectar con la base de datos", "error");
              setLoadingDb(false);
           });
       }, []);
@@ -485,7 +484,7 @@
         return (
           <div className="min-h-screen bg-[#f8f9fa] flex flex-col items-center justify-center p-4">
             <i data-lucide="refresh-cw" className="w-10 h-10 text-[#1a8241] animate-spin mb-4"></i>
-            <h2 className="text-xl font-bold text-gray-700">Conectando a Google Sheets...</h2>
+            <h2 className="text-xl font-bold text-gray-700">Conectando con la base de datos...</h2>
             <p className="text-gray-500 mt-2 text-center text-sm max-w-md">Por favor, espera mientras sincronizamos la información de contratos y clientes.</p>
           </div>
         );
