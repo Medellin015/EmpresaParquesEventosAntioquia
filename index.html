@@ -45,8 +45,6 @@
     // IMPORTANTE: Pega aquí la URL que te generó Google Apps Script
     const GOOGLE_SHEETS_WEBAPP_URL = "https://script.google.com/macros/s/AKfycbzphjFRhD1cfyY7IPbEJzu-EcT8km_zP36dyWvsLrZvz7KKXTgH0_LyS5tRXMt4Y6c/exec"; 
 
-    const EJECUTIVOS = ["Katheryn Zapata"];
-
     // --- COMPONENTES UI ---
 
     const Toast = ({ message, type, onClose }) => {
@@ -68,9 +66,14 @@
     };
 
     // --- PANTALLA 1: LOGIN ---
-    const LoginScreen = ({ onLogin, error, loading }) => {
+    const LoginScreen = ({ onLogin, error, loading, usuariosDisponibles }) => {
       const [ejecutivo, setEjecutivo] = useState("");
       const [password, setPassword] = useState("");
+
+      // Usar la lista de la BD, o un fallback si está vacía
+      const ejecutivosLista = usuariosDisponibles?.length > 0 
+        ? usuariosDisponibles.map(u => u.ejecutivo) 
+        : ["Katheryn Zapata"];
 
       useEffect(() => { if (typeof lucide !== "undefined") lucide.createIcons(); }, [error, loading]);
 
@@ -95,7 +98,7 @@
                 <label className="block text-[11px] uppercase tracking-[0.1em] text-gray-500 mb-1.5 font-bold">Ejecutivo / Usuario</label>
                 <select required value={ejecutivo} onChange={e => setEjecutivo(e.target.value)} className="w-full px-3.5 py-2.5 bg-gray-50 border border-gray-200 rounded-lg text-[14px] text-gray-800 focus:outline-none focus:border-[#1a8241] focus:ring-1 focus:ring-[#1a8241] transition-all">
                   <option value="" disabled>Selecciona tu perfil...</option>
-                  {EJECUTIVOS.map(r => <option key={r} value={r}>{r}</option>)}
+                  {ejecutivosLista.map(r => <option key={r} value={r}>{r}</option>)}
                 </select>
               </div>
 
@@ -125,7 +128,13 @@
       const [search, setSearch] = useState("");
       useEffect(() => { if (typeof lucide !== "undefined") lucide.createIcons(); });
 
-      const filtered = contratos.filter(c => c.entidad.toLowerCase().includes(search.toLowerCase()));
+      // Filtrar contratos para que solo se vean los asignados al ejecutivo que inició sesión
+      const misContratos = contratos.filter(c => {
+        if (!c.ejecutivo) return true; // Si en la DB no hay ejecutivo, lo mostramos a todos como fallback
+        return c.ejecutivo.trim().toLowerCase() === user.name.trim().toLowerCase();
+      });
+
+      const filtered = misContratos.filter(c => c.entidad.toLowerCase().includes(search.toLowerCase()));
 
       return (
         <div className="min-h-screen bg-[#f8f9fa] flex flex-col">
@@ -172,7 +181,7 @@
               {filtered.length === 0 && (
                 <div className="col-span-full py-12 text-center text-gray-500">
                   <i data-lucide="search-x" className="w-12 h-12 mx-auto mb-3 opacity-20"></i>
-                  <p>No se encontraron contratos para tu búsqueda.</p>
+                  <p>No se encontraron contratos asociados a tu perfil para esta búsqueda.</p>
                 </div>
               )}
             </div>
@@ -189,14 +198,20 @@
 
       useEffect(() => { if (typeof lucide !== "undefined") lucide.createIcons(); });
 
+      // Buscar la clave exacta de 'Contrato' ignorando mayúsculas/minúsculas y espacios
+      const contratoKey = dbData.headers.find(h => h.trim().toLowerCase() === 'contrato');
+
       // Filtrar órdenes que pertenezcan a este contrato
-      // Busca coincidencias en la columna 'Contrato'
       const ordenesDelContrato = dbData.ordenes.filter(o => {
-        return o.Contrato === contract.entidad || o.contrato === contract.entidad;
+        if (!contratoKey) return false;
+        return o[contratoKey]?.toString().trim().toLowerCase() === contract.entidad.trim().toLowerCase();
       });
 
       // Headers dinámicos para mostrar en tabla y formulario (excluyendo id y Contrato interno)
-      const displayHeaders = dbData.headers.filter(h => h !== 'id' && h.toLowerCase() !== 'contrato');
+      const displayHeaders = dbData.headers.filter(h => {
+        const lowerH = h.trim().toLowerCase();
+        return lowerH !== 'id' && lowerH !== 'contrato';
+      });
 
       const openModal = (record = null) => {
         setEditingRecord(record);
@@ -209,8 +224,14 @@
         
         let newRecord = { 
           id: editingRecord ? editingRecord.id : "",
-          Contrato: contract.entidad // Atamos la orden al contrato activo
         };
+        
+        // Atamos la orden al contrato activo
+        if (contratoKey) {
+          newRecord[contratoKey] = contract.entidad; 
+        } else {
+          newRecord['Contrato'] = contract.entidad;
+        }
         
         for (let [key, value] of fd.entries()) { newRecord[key] = value; }
 
@@ -219,7 +240,6 @@
         if (editingRecord) {
           updatedOrdenes = updatedOrdenes.map(x => x.id === editingRecord.id ? newRecord : x);
         } else {
-          // Generar un ID temporal para que se vea en UI de inmediato
           newRecord.id = "temp-" + Date.now();
           updatedOrdenes.push(newRecord);
         }
@@ -326,9 +346,15 @@
                       ) : (
                         ordenesDelContrato.map((ord, i) => (
                           <tr key={ord.id} className={`${i % 2 === 0 ? "bg-white" : "bg-gray-50"} hover:bg-green-50 border-b border-gray-100`}>
-                            {displayHeaders.map(h => (
-                              <td key={h} className="p-3 text-gray-700 max-w-[300px] truncate" title={ord[h]}>{ord[h]}</td>
-                            ))}
+                            {displayHeaders.map(h => {
+                              // Extraer información usando la clave exacta (para evitar bugs por espacios)
+                              const cellData = ord[h];
+                              return (
+                                <td key={h} className="p-3 text-gray-700 max-w-[300px] truncate" title={cellData}>
+                                  {cellData}
+                                </td>
+                              );
+                            })}
                             <td className="p-3 text-center whitespace-nowrap">
                               <button onClick={() => openModal(ord)} className="text-blue-600 hover:bg-blue-50 p-1.5 rounded mr-1"><i data-lucide="edit-2" className="w-4 h-4"></i></button>
                               <button onClick={() => handleDelete(ord.id)} className="text-red-500 hover:bg-red-50 p-1.5 rounded"><i data-lucide="trash-2" className="w-4 h-4"></i></button>
@@ -357,19 +383,18 @@
                 <form onSubmit={handleSave} className="space-y-4 max-h-[70vh] overflow-y-auto px-1">
                   <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                     {displayHeaders.map(h => {
-                      // Determinar tipo de input básico por el nombre
                       let inputType = "text";
                       const headerLower = h.toLowerCase();
                       if (headerLower.includes("fecha")) inputType = "date";
                       else if (headerLower.includes("cantidad") || headerLower.includes("valor") || headerLower.includes("precio")) inputType = "number";
 
                       return (
-                        <div key={h} className={headerLower.includes("observacion") || headerLower.includes("descripci") ? "md:col-span-2 lg:col-span-3" : ""}>
+                        <div key={h} className={headerLower.includes("observacion") || headerLower.includes("descripci") || headerLower.includes("evento") ? "md:col-span-2 lg:col-span-3" : ""}>
                           <label className="block text-[11px] font-bold text-gray-500 uppercase mb-1">{h}</label>
                           {headerLower.includes("observacion") || headerLower.includes("descripci") ? (
                             <textarea name={h} defaultValue={editingRecord?.[h] || ""} className="w-full p-2.5 border border-gray-300 rounded-lg focus:ring-1 focus:ring-[#1a8241] outline-none text-sm bg-gray-50 resize-y min-h-[80px]"></textarea>
                           ) : (
-                            <input type={inputType} step={inputType==="number" ? "any" : undefined} name={h} required defaultValue={editingRecord?.[h] || ""} className="w-full p-2.5 border border-gray-300 rounded-lg focus:ring-1 focus:ring-[#1a8241] outline-none text-sm bg-gray-50" />
+                            <input type={inputType} step={inputType==="number" ? "any" : undefined} name={h} required={headerLower.includes("número") || headerLower.includes("tipo")} defaultValue={editingRecord?.[h] || ""} className="w-full p-2.5 border border-gray-300 rounded-lg focus:ring-1 focus:ring-[#1a8241] outline-none text-sm bg-gray-50" />
                           )}
                         </div>
                       );
@@ -399,21 +424,23 @@
       const [toast, setToast] = useState(null);
 
       // Estado de Base de Datos
-      const [dbData, setDbData] = useState({ contratos: [], ordenes: [], headers: [] });
-      const [loadingDb, setLoadingDb] = useState(false);
+      const [dbData, setDbData] = useState({ contratos: [], ordenes: [], headers: [], usuarios: [] });
+      const [loadingDb, setLoadingDb] = useState(true);
 
       const showToast = (message, type = "success") => setToast({ message, type, key: Date.now() });
 
-      // Efecto para cargar los datos de Google Sheets al arrancar
+      // Efecto para cargar los datos de Google Sheets al arrancar la App
       useEffect(() => {
-        if (!GOOGLE_SHEETS_WEBAPP_URL || GOOGLE_SHEETS_WEBAPP_URL === "PEGAR_AQUI_LA_URL_DE_APPS_SCRIPT") return;
+        if (!GOOGLE_SHEETS_WEBAPP_URL || GOOGLE_SHEETS_WEBAPP_URL === "PEGAR_AQUI_LA_URL_DE_APPS_SCRIPT") {
+          setLoadingDb(false);
+          return;
+        }
         
-        setLoadingDb(true);
         fetch(GOOGLE_SHEETS_WEBAPP_URL)
           .then(res => res.json())
           .then(data => {
              if(data.status === 'success') {
-               setDbData({ contratos: data.contratos, ordenes: data.ordenes, headers: data.headers });
+               setDbData({ contratos: data.contratos || [], ordenes: data.ordenes || [], headers: data.headers || [], usuarios: data.usuarios || [] });
              } else {
                showToast("Error de la BD: " + data.message, "error");
              }
@@ -429,7 +456,18 @@
         setLoading(true);
         setError(null);
         setTimeout(() => {
-          if (ejecutivo === "Katheryn Zapata" && password === "Activa2026*") {
+          // Buscamos dinámicamente si el usuario existe en la BD
+          const usuarioEncontrado = dbData.usuarios?.find(u => u.ejecutivo.toLowerCase() === ejecutivo.toLowerCase());
+          
+          let authExitosa = false;
+          if (usuarioEncontrado) {
+            authExitosa = (usuarioEncontrado.password === password);
+          } else {
+            // Fallback hardcodeado si la BD aún no tiene usuarios
+            authExitosa = (ejecutivo === "Katheryn Zapata" && password === "Activa2026*");
+          }
+
+          if (authExitosa) {
             setUser({ name: ejecutivo, role: "Ejecutivo" });
           } else {
             setError("Contraseña incorrecta para este ejecutivo.");
@@ -443,8 +481,6 @@
         setContract(null);
       };
 
-      if (!user) return <LoginScreen onLogin={handleLogin} error={error} loading={loading} />;
-      
       if (loadingDb) {
         return (
           <div className="min-h-screen bg-[#f8f9fa] flex flex-col items-center justify-center p-4">
@@ -455,12 +491,14 @@
         );
       }
 
+      if (!user) return <LoginScreen onLogin={handleLogin} error={error} loading={loading} usuariosDisponibles={dbData.usuarios} />;
+
       if (dbData.contratos.length === 0) {
         return (
           <div className="min-h-screen bg-[#f8f9fa] flex flex-col items-center justify-center p-4 text-center">
              <i data-lucide="alert-triangle" className="w-12 h-12 text-yellow-500 mb-4"></i>
-             <h2 className="text-xl font-bold text-gray-800">Conexión Incompleta</h2>
-             <p className="text-gray-600 mt-2">Asegúrate de haber pegado la URL de tu Google Apps Script en la variable <code className="bg-gray-200 px-1 rounded">GOOGLE_SHEETS_WEBAPP_URL</code> del código.</p>
+             <h2 className="text-xl font-bold text-gray-800">Conexión Incompleta o Sin Datos</h2>
+             <p className="text-gray-600 mt-2">No se encontraron contratos registrados. Asegúrate de tener datos en la hoja 'Contratos'.</p>
           </div>
         );
       }
