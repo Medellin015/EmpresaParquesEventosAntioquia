@@ -63,9 +63,9 @@
 
     const Toast = ({ message, type, onClose }) => {
       useEffect(() => {
-        const t = setTimeout(onClose, 3500);
+        const t = setTimeout(onClose, type === 'error' ? 5000 : 3500); // Errores duran más en pantalla
         return () => clearTimeout(t);
-      }, [onClose]);
+      }, [onClose, type]);
 
       const styles = type === "error" ? "bg-red-50 border-red-200 text-red-800" : "bg-green-50 border-green-200 text-green-800";
       const iconName = type === "error" ? "alert-circle" : "check-circle";
@@ -205,10 +205,7 @@
         ? usuariosDisponibles.map(u => u.ejecutivo) 
         : ["Katheryn Zapata"];
 
-      // Aseguramos que "Directivos" siempre exista en la lista visual del login
-      if (!ejecutivosLista.includes("Directivos")) {
-        ejecutivosLista.push("Directivos");
-      }
+      if (!ejecutivosLista.includes("Directivos")) ejecutivosLista.push("Directivos");
 
       useEffect(() => { if (typeof lucide !== "undefined") lucide.createIcons(); }, [error, loading]);
 
@@ -249,7 +246,7 @@
                 </div>
               )}
 
-              <button type="submit" disabled={loading || !ejecutivo || !password} className="w-full bg-[#1a8241] hover:bg-green-800 text-white py-3 rounded-lg font-medium transition-colors flex items-center justify-center gap-2 shadow-md">
+              <button type="submit" disabled={loading || !ejecutivo || !password} className="w-full bg-[#1a8241] hover:bg-green-800 text-white py-3 rounded-lg font-medium transition-colors flex items-center justify-center gap-2 shadow-md disabled:opacity-70 disabled:cursor-not-allowed">
                 {loading ? <><i data-lucide="refresh-cw" className="w-4 h-4 animate-spin"></i> Verificando...</> : <><i data-lucide="log-in" className="w-4 h-4"></i> Iniciar Sesión</>}
               </button>
             </form>
@@ -268,53 +265,53 @@
       const isDirectivo = user.role === 'Directivos';
       const contratos = dbData.contratos || [];
       
-      // Directivos ven todo, Ejecutivos ven solo lo suyo
       const misContratos = isDirectivo 
         ? contratos 
         : contratos.filter(c => c.ejecutivo && c.ejecutivo.trim().toLowerCase() === user.name.trim().toLowerCase());
 
       const filtered = misContratos.filter(c => c.entidad.toLowerCase().includes(search.toLowerCase()));
 
-      // Cálculos para indicadores
       const misContratosNombres = misContratos.map(c => c.entidad.toLowerCase().trim());
       const contratoKey = dbData.headers.find(h => h.trim().toLowerCase() === 'contrato');
       
-      const misOrdenes = (dbData.ordenes || []).filter(o => {
+      const misOrdenes = useMemo(() => (dbData.ordenes || []).filter(o => {
         const cName = contratoKey ? (o[contratoKey] || "").toString().toLowerCase().trim() : (o['Contrato'] || "").toString().toLowerCase().trim();
         return misContratosNombres.includes(cName);
-      });
+      }), [dbData.ordenes, misContratosNombres, contratoKey]);
 
-      const aprobadoData = misContratos.map(c => {
+      const aprobadoData = useMemo(() => misContratos.map(c => {
          const orders = misOrdenes.filter(o => {
             const cName = contratoKey ? (o[contratoKey] || "").toString().toLowerCase().trim() : (o['Contrato'] || "").toString().toLowerCase().trim();
             return cName === c.entidad.toLowerCase().trim();
          });
          const total = orders.reduce((sum, o) => sum + parseNum(o[Object.keys(o).find(k => k.toLowerCase().includes("valor aprobado"))]), 0);
          return { label: c.entidad.length > 20 ? c.entidad.substring(0, 20) + '...' : c.entidad, value: total };
-      }).filter(d => d.value > 0);
+      }).filter(d => d.value > 0), [misContratos, misOrdenes, contratoKey]);
 
-      const facturadoData = misContratos.map(c => {
+      const facturadoData = useMemo(() => misContratos.map(c => {
          const orders = misOrdenes.filter(o => {
             const cName = contratoKey ? (o[contratoKey] || "").toString().toLowerCase().trim() : (o['Contrato'] || "").toString().toLowerCase().trim();
             return cName === c.entidad.toLowerCase().trim();
          });
          const total = orders.reduce((sum, o) => sum + parseNum(o[Object.keys(o).find(k => k.toLowerCase().includes("valor facturado"))]), 0);
          return { label: c.entidad.length > 20 ? c.entidad.substring(0, 20) + '...' : c.entidad, value: total };
-      }).filter(d => d.value > 0);
+      }).filter(d => d.value > 0), [misContratos, misOrdenes, contratoKey]);
 
-      const provConEvidencia = {};
-      misOrdenes.forEach(o => {
-         const provKey = Object.keys(o).find(k => k.toLowerCase().includes("nombre proveedor"));
-         const prov = provKey ? o[provKey] : null;
-         
-         const evKey = Object.keys(o).find(k => k.toLowerCase().includes("informe de evidencias"));
-         const ev = evKey ? o[evKey].toString().toUpperCase().trim() : "";
-         
-         if(prov && (ev === 'SÍ' || ev === 'SI' || ev === 'SĪ')) {
-             provConEvidencia[prov] = (provConEvidencia[prov] || 0) + 1;
-         }
-      });
-      const provData = Object.keys(provConEvidencia).map(k => ({ label: k, value: provConEvidencia[k] })).sort((a,b) => b.value - a.value);
+      const provData = useMemo(() => {
+        const provConEvidencia = {};
+        misOrdenes.forEach(o => {
+           const provKey = Object.keys(o).find(k => k.toLowerCase().includes("nombre proveedor"));
+           const prov = provKey ? o[provKey] : null;
+           
+           const evKey = Object.keys(o).find(k => k.toLowerCase().includes("informe de evidencias"));
+           const ev = evKey ? o[evKey].toString().toUpperCase().trim() : "";
+           
+           if(prov && (ev === 'SÍ' || ev === 'SI' || ev === 'SĪ')) {
+               provConEvidencia[prov] = (provConEvidencia[prov] || 0) + 1;
+           }
+        });
+        return Object.keys(provConEvidencia).map(k => ({ label: k, value: provConEvidencia[k] })).sort((a,b) => b.value - a.value);
+      }, [misOrdenes]);
 
       return (
         <div className="min-h-screen bg-[#f8f9fa] flex flex-col">
@@ -416,7 +413,6 @@
       const [editingRecord, setEditingRecord] = useState(null);
       const [isSyncing, setIsSyncing] = useState(false);
       
-      // Estado para Modales de Acciones Automáticas (Power Automate)
       const [paAction, setPaAction] = useState(null);
       const [paOrderNum, setPaOrderNum] = useState("");
 
@@ -429,10 +425,10 @@
 
       const contratoKey = dbData.headers.find(h => h.trim().toLowerCase() === 'contrato');
 
-      const ordenesDelContrato = dbData.ordenes.filter(o => {
+      const ordenesDelContrato = useMemo(() => dbData.ordenes.filter(o => {
         if (!contratoKey) return false;
         return o[contratoKey]?.toString().trim().toLowerCase() === contract.entidad.trim().toLowerCase();
-      });
+      }), [dbData.ordenes, contratoKey, contract.entidad]);
 
       const displayHeaders = dbData.headers.filter(h => {
         const lowerH = h.trim().toLowerCase();
@@ -440,14 +436,13 @@
       });
 
       const openModal = (record = null) => {
-        if(isDirectivo) return; // Seguridad adicional
+        if(isDirectivo) return; 
         setEditingRecord(record);
         setIsModalOpen(true);
       };
 
       const formatNum = (num) => new Intl.NumberFormat('es-CO').format(Math.round(num));
 
-      // Manejador matemático en tiempo real
       const handleFormChange = (e) => {
         const form = formRef.current;
         if(!form) return;
@@ -485,15 +480,9 @@
 
         const fd = new FormData(e.target);
         
-        let newRecord = { 
-          id: editingRecord ? editingRecord.id : "",
-        };
-        
-        if (contratoKey) {
-          newRecord[contratoKey] = contract.entidad; 
-        } else {
-          newRecord['Contrato'] = contract.entidad;
-        }
+        let newRecord = { id: editingRecord ? editingRecord.id : "" };
+        if (contratoKey) { newRecord[contratoKey] = contract.entidad; } 
+        else { newRecord['Contrato'] = contract.entidad; }
         
         for (let [key, value] of fd.entries()) { 
           const keyLower = key.replace(/\s+/g, ' ').toLowerCase().trim();
@@ -509,7 +498,6 @@
           }
         }
 
-        // Recálculo Forzado
         const admon = contract.porcentajeAdmon || 0;
         const vFacturado = parseNum(newRecord[Object.keys(newRecord).find(k => k.replace(/\s+/g, ' ').toLowerCase().includes("valor facturado"))] || 0);
         const vAprobado = parseNum(newRecord[Object.keys(newRecord).find(k => k.replace(/\s+/g, ' ').toLowerCase().includes("valor aprobado"))] || 0);
@@ -523,6 +511,9 @@
         if (keyIvaInc) newRecord[keyIvaInc] = Math.round(vFacturado * admon * 1.19);
         if (keyLiberar) newRecord[keyLiberar] = Math.round(vAprobado - vFacturado);
         if (keyEjecutivo && !newRecord[keyEjecutivo]) newRecord[keyEjecutivo] = user.name;
+
+        // Rollback snapshot
+        const previousOrdenes = [...dbData.ordenes];
 
         let updatedOrdenes = [...dbData.ordenes];
         if (editingRecord) {
@@ -542,9 +533,15 @@
         .then(res => res.json())
         .then(res => {
           if(res.status === 'success') showToast(editingRecord ? "Orden actualizada" : "Orden creada");
-          else showToast("Error al guardar: " + res.message, "error");
+          else {
+            setDbData({ ...dbData, ordenes: previousOrdenes });
+            showToast("Error al guardar en la base de datos: " + res.message, "error");
+          }
         })
-        .catch(err => showToast("Error de conexión: " + err, "error"))
+        .catch(err => {
+          setDbData({ ...dbData, ordenes: previousOrdenes });
+          showToast("Error de conexión con la base de datos", "error");
+        })
         .finally(() => setIsSyncing(false));
       };
 
@@ -552,6 +549,9 @@
         if (isDirectivo) return;
         if (!confirm("¿Eliminar esta orden permanentemente?")) return;
         
+        // Rollback snapshot
+        const previousOrdenes = [...dbData.ordenes];
+
         setDbData({ ...dbData, ordenes: dbData.ordenes.filter(x => x.id !== id) });
         setIsSyncing(true);
 
@@ -562,9 +562,15 @@
         .then(res => res.json())
         .then(res => {
           if(res.status === 'success') showToast("Orden eliminada");
-          else showToast("Error al eliminar: " + res.message, "error");
+          else {
+            setDbData({ ...dbData, ordenes: previousOrdenes });
+            showToast("Error al eliminar en la base de datos: " + res.message, "error");
+          }
         })
-        .catch(err => showToast("Error de conexión: " + err, "error"))
+        .catch(err => {
+          setDbData({ ...dbData, ordenes: previousOrdenes });
+          showToast("Error de conexión con la base de datos", "error");
+        })
         .finally(() => setIsSyncing(false));
       };
 
@@ -576,7 +582,6 @@
         XLSX.writeFile(wb, `Ordenes_${contract.entidad.substring(0,20).replace(/[^a-z0-9]/gi, '_')}.xlsx`);
       };
 
-      // Manejador para botones de Power Automate
       const handlePaSubmit = (e) => {
         e.preventDefault();
         const payload = {
@@ -584,7 +589,7 @@
            contrato: contract.entidad,
            numeroOrdenPedido: paOrderNum
         };
-        // Aquí es donde harás la llamada real HTTP a Power Automate (Fetch a su Webhook)
+        // TODO: Llamada fetch al Webhook de Power Automate
         console.log("JSON Formado para Power Automate:", JSON.stringify(payload));
         
         showToast(`Acción "${paAction}" iniciada para la orden ${paOrderNum}`);
@@ -607,8 +612,8 @@
               </div>
             </div>
             <div className="flex items-center gap-3">
-              {isSyncing && <span className="text-xs text-gray-500 flex items-center gap-1"><i data-lucide="refresh-cw" className="w-3 h-3 animate-spin"></i> Procesando...</span>}
-              <button onClick={onBackToContracts} className="text-xs sm:text-sm font-semibold bg-white border border-gray-300 text-gray-700 px-3 py-2 rounded-lg hover:bg-gray-50 transition-colors shadow-sm flex items-center gap-2">
+              {isSyncing && <span className="text-xs text-gray-500 flex items-center gap-1"><i data-lucide="refresh-cw" className="w-3 h-3 animate-spin"></i> Guardando...</span>}
+              <button onClick={onBackToContracts} disabled={isSyncing} className="text-xs sm:text-sm font-semibold bg-white border border-gray-300 text-gray-700 px-3 py-2 rounded-lg hover:bg-gray-50 transition-colors shadow-sm flex items-center gap-2 disabled:opacity-50">
                 <i data-lucide="arrow-left" className="w-4 h-4"></i> <span className="hidden sm:inline">Volver</span>
               </button>
             </div>
@@ -712,7 +717,7 @@
                     <i data-lucide="download" className="w-4 h-4"></i> Exportar
                   </button>
                   {!isDirectivo && (
-                    <button onClick={() => openModal()} className="px-4 py-2 bg-[#1a8241] text-white hover:bg-green-800 rounded-lg text-sm font-bold flex items-center gap-2 shadow-sm transition-colors">
+                    <button onClick={() => openModal()} disabled={isSyncing} className="px-4 py-2 bg-[#1a8241] text-white hover:bg-green-800 rounded-lg text-sm font-bold flex items-center gap-2 shadow-sm transition-colors disabled:opacity-50 disabled:cursor-not-allowed">
                       <i data-lucide="plus" className="w-4 h-4"></i> Nueva Orden
                     </button>
                   )}
@@ -815,7 +820,7 @@
             </div>
           )}
 
-          {/* Modal Formulario Dinámico con Autocompletado y Lógica */}
+          {/* Modal Formulario Dinámico */}
           {isModalOpen && !isDirectivo && (
             <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4 z-50 anim-fade" onClick={() => setIsModalOpen(false)}>
               <div className="bg-white rounded-2xl w-full max-w-4xl shadow-2xl p-6 anim-slide-up" onClick={e => e.stopPropagation()}>
@@ -922,7 +927,7 @@
 
                   <div className="pt-4 flex justify-end gap-3 border-t border-gray-100 mt-6 sticky bottom-0 bg-white pb-2">
                     <button type="button" onClick={() => setIsModalOpen(false)} className="px-5 py-2.5 rounded-lg text-sm font-bold text-gray-600 hover:bg-gray-100 transition-colors">Cancelar</button>
-                    <button type="submit" className="px-5 py-2.5 bg-[#1a8241] text-white rounded-lg text-sm font-bold hover:bg-green-800 transition-colors flex items-center gap-2">
+                    <button type="submit" disabled={isSyncing} className="px-5 py-2.5 bg-[#1a8241] text-white rounded-lg text-sm font-bold hover:bg-green-800 transition-colors flex items-center gap-2 disabled:opacity-50">
                       <i data-lucide="save" className="w-4 h-4"></i> Guardar
                     </button>
                   </div>
@@ -985,7 +990,6 @@
           if (usuarioEncontrado) {
             authExitosa = (usuarioEncontrado.password === password);
           } else {
-            // El usuario Directivos siempre entra si usa esta contraseña de backup o si se da de alta en BD.
             authExitosa = (ejecutivo === "Katheryn Zapata" && password === "Activa2026*") || (ejecutivo === "Directivos" && password === "Activa2026*");
           }
 
