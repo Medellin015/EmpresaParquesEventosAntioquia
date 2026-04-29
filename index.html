@@ -1,192 +1,544 @@
-const SPREADSHEET_ID = '1RUdKMNBhcNmOJpZLane9Pu3OyVOpxJe0OUMCVSNiRgo';
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Órdenes de Pedido - ACTIVA</title>
 
-function doGet(e) {
-  try {
-    var ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+  <!-- TailwindCSS -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <!-- React & ReactDOM -->
+  <script src="https://unpkg.com/react@18/umd/react.production.min.js" crossorigin></script>
+  <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js" crossorigin></script>
+  <!-- Babel -->
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+  <!-- Lucide Icons -->
+  <script src="https://unpkg.com/lucide@latest"></script>
+  <!-- SheetJS para exportar a Excel -->
+  <script src="https://cdn.jsdelivr.net/npm/xlsx-js-style@1.2.0/dist/xlsx.bundle.js"></script>
+
+  <style>
+    @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+    @keyframes slideUp { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+    @keyframes slideInRight { from { opacity: 0; transform: translateX(20px); } to { opacity: 1; transform: translateX(0); } }
+    @keyframes slideInLeft { from { opacity: 0; transform: translateX(-100%); } to { opacity: 1; transform: translateX(0); } }
     
-    // 1. OBTENER USUARIOS
-    var sheetUsuarios = ss.getSheetByName('Usuarios') || ss.getSheetByName('Ejecutivos');
-    var usuarios = [];
-    if (sheetUsuarios) {
-      var dataU = sheetUsuarios.getDataRange().getDisplayValues();
-      var hU = dataU[0].map(function(h) { return h.toString().trim().toLowerCase(); });
-      var colEjecutivo = hU.indexOf('ejecutivo');
-      var colPass = hU.indexOf('contraseña');
-      
-      if (colEjecutivo > -1 && colPass > -1) {
-        for (var i = 1; i < dataU.length; i++) {
-          if (dataU[i][colEjecutivo]) {
-            usuarios.push({
-              ejecutivo: dataU[i][colEjecutivo].toString().trim(),
-              password: dataU[i][colPass].toString().trim()
-            });
-          }
-        }
-      }
-    } else {
-      usuarios.push({ ejecutivo: "Katheryn Zapata", password: "Activa2026*" });
-    }
+    .anim-fade { animation: fadeIn 200ms ease-out; }
+    .anim-slide-up { animation: slideUp 220ms ease-out; }
+    .anim-slide-in-right { animation: slideInRight 200ms ease-out; }
+    .anim-slide-in-left { animation: slideInLeft 220ms ease-out; }
 
-    // 2. OBTENER CONTRATOS
-    var sheetContratos = ss.getSheetByName('Contratos');
-    var contratos = [];
-    if (sheetContratos) {
-      var dataC = sheetContratos.getDataRange().getDisplayValues();
-      var hC = dataC[0].map(function(h) { return h.toString().trim().toLowerCase(); });
-      var colNombre = hC.indexOf('nombre cliente');
-      var colEjecutivoC = hC.indexOf('ejecutivo');
-      
-      if (colNombre > -1) {
-        for (var i = 1; i < dataC.length; i++) {
-          if (dataC[i][colNombre] && dataC[i][colNombre].trim() !== "") {
-            contratos.push({
-              id: "C" + i,
-              entidad: dataC[i][colNombre].toString().trim(),
-              ejecutivo: colEjecutivoC > -1 ? dataC[i][colEjecutivoC].toString().trim() : ""
-            });
-          }
-        }
-      }
-    }
+    ::-webkit-scrollbar { width: 8px; height: 8px; }
+    ::-webkit-scrollbar-track { background: #f1f1f1; border-radius: 4px; }
+    ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 4px; }
+    ::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
+  </style>
+</head>
+<body>
+  <div id="root"></div>
 
-    // 3. OBTENER LISTAS DESPLEGABLES (NUEVO)
-    var sheetListas = ss.getSheetByName('Listas');
-    var listas = {};
-    if (sheetListas) {
-      var dataL = sheetListas.getDataRange().getDisplayValues();
-      if (dataL.length > 0) {
-        var headersL = dataL[0];
-        for (var c = 0; c < headersL.length; c++) {
-          var colName = headersL[c].toString().trim();
-          if (colName !== "") {
-            listas[colName] = [];
-            for (var r = 1; r < dataL.length; r++) {
-              var val = dataL[r][c].toString().trim();
-              if (val !== "") listas[colName].push(val);
-            }
-          }
-        }
-      }
-    }
+  <script type="text/babel">
+    const { useState, useMemo, useEffect, useRef, useCallback } = React;
 
-    // 4. OBTENER ÓRDENES Y LIMPIEZA DE ID
-    var sheetCliente = ss.getSheetByName('Cliente');
-    var ordenes = [];
-    var headers = [];
+    // --- CONFIGURACIÓN DE BASE DE DATOS Y USUARIOS ---
     
-    if (sheetCliente) {
-      var dataO = sheetCliente.getDataRange().getDisplayValues();
-      if (dataO.length > 0) {
-        headers = dataO[0].map(function(h) { return h.toString().trim(); });
+    // IMPORTANTE: Pega aquí la URL que te generó Google Apps Script
+    const GOOGLE_SHEETS_WEBAPP_URL = "https://script.google.com/macros/s/AKfycbzphjFRhD1cfyY7IPbEJzu-EcT8km_zP36dyWvsLrZvz7KKXTgH0_LyS5tRXMt4Y6c/exec"; 
+
+    // Lista de columnas que son estrictamente obligatorias según tu archivo
+    const COLUMNAS_OBLIGATORIAS = [
+      "importancia estratégica",
+      "fecha inicio evento",
+      "fecha fin evento",
+      "fecha orden pedido",
+      "número orden de pedido",
+      "tipo",
+      "evento",
+      "lugar del evento",
+      "estado",
+      "contrato"
+    ];
+
+    // --- COMPONENTES UI ---
+
+    const Toast = ({ message, type, onClose }) => {
+      useEffect(() => {
+        const t = setTimeout(onClose, 3500);
+        return () => clearTimeout(t);
+      }, [onClose]);
+
+      const styles = type === "error" ? "bg-red-50 border-red-200 text-red-800" : "bg-green-50 border-green-200 text-green-800";
+      const iconName = type === "error" ? "alert-circle" : "check-circle";
+
+      return (
+        <div className={`fixed bottom-6 right-6 z-[60] max-w-sm border rounded-xl shadow-lg p-4 flex items-start gap-3 anim-slide-in-right ${styles}`}>
+          <i data-lucide={iconName} className="w-5 h-5 flex-shrink-0 mt-0.5"></i>
+          <div className="flex-1 text-sm font-medium">{message}</div>
+          <button onClick={onClose} className="opacity-60 hover:opacity-100 transition-opacity"><i data-lucide="x" className="w-4 h-4"></i></button>
+        </div>
+      );
+    };
+
+    // --- PANTALLA 1: LOGIN ---
+    const LoginScreen = ({ onLogin, error, loading, usuariosDisponibles }) => {
+      const [ejecutivo, setEjecutivo] = useState("");
+      const [password, setPassword] = useState("");
+
+      const ejecutivosLista = usuariosDisponibles?.length > 0 
+        ? usuariosDisponibles.map(u => u.ejecutivo) 
+        : ["Katheryn Zapata"];
+
+      useEffect(() => { if (typeof lucide !== "undefined") lucide.createIcons(); }, [error, loading]);
+
+      const onSubmit = (e) => {
+        e.preventDefault();
+        onLogin(ejecutivo, password);
+      };
+
+      return (
+        <div className="min-h-screen bg-gradient-to-br from-[#f8f9fa] via-white to-[#e0f2e9] flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl shadow-xl border border-gray-100 p-6 sm:p-8 w-full max-w-md anim-slide-up">
+            <div className="flex flex-col items-center mb-6">
+              <div className="w-16 h-16 bg-green-50 rounded-full flex items-center justify-center mb-4 text-[#1a8241]">
+                <i data-lucide="file-text" className="w-8 h-8"></i>
+              </div>
+              <h1 className="text-xl sm:text-2xl font-bold text-[#1a8241] text-center">Órdenes de Pedido</h1>
+              <p className="text-xs text-gray-500 mt-1 text-center font-medium tracking-widest uppercase">Plataforma ACTIVA</p>
+            </div>
+
+            <form onSubmit={onSubmit}>
+              <div className="mb-4">
+                <label className="block text-[11px] uppercase tracking-[0.1em] text-gray-500 mb-1.5 font-bold">Ejecutivo / Usuario</label>
+                <select required value={ejecutivo} onChange={e => setEjecutivo(e.target.value)} className="w-full px-3.5 py-2.5 bg-gray-50 border border-gray-200 rounded-lg text-[14px] text-gray-800 focus:outline-none focus:border-[#1a8241] focus:ring-1 focus:ring-[#1a8241] transition-all">
+                  <option value="" disabled>Selecciona tu perfil...</option>
+                  {ejecutivosLista.map(r => <option key={r} value={r}>{r}</option>)}
+                </select>
+              </div>
+
+              <div className="mb-5">
+                <label className="block text-[11px] uppercase tracking-[0.1em] text-gray-500 mb-1.5 font-bold">Contraseña</label>
+                <input type="password" required value={password} onChange={e => setPassword(e.target.value)} className="w-full px-3.5 py-2.5 bg-gray-50 border border-gray-200 rounded-lg text-[14px] text-gray-800 focus:outline-none focus:border-[#1a8241] focus:ring-1 focus:ring-[#1a8241] transition-all" />
+              </div>
+
+              {error && (
+                <div className="mb-4 p-3 bg-red-50 border border-red-200 text-red-700 text-sm rounded-lg flex items-start gap-2">
+                  <i data-lucide="alert-circle" className="w-4 h-4 mt-0.5 flex-shrink-0"></i>
+                  <span>{error}</span>
+                </div>
+              )}
+
+              <button type="submit" disabled={loading || !ejecutivo || !password} className="w-full bg-[#1a8241] hover:bg-green-800 text-white py-3 rounded-lg font-medium transition-colors flex items-center justify-center gap-2 shadow-md">
+                {loading ? <><i data-lucide="refresh-cw" className="w-4 h-4 animate-spin"></i> Verificando...</> : <><i data-lucide="log-in" className="w-4 h-4"></i> Iniciar Sesión</>}
+              </button>
+            </form>
+          </div>
+        </div>
+      );
+    };
+
+    // --- PANTALLA 2: SELECCIÓN DE CONTRATOS ---
+    const ContractSelection = ({ onSelectContract, onLogout, user, contratos }) => {
+      const [search, setSearch] = useState("");
+      useEffect(() => { if (typeof lucide !== "undefined") lucide.createIcons(); });
+
+      const misContratos = contratos.filter(c => {
+        return c.ejecutivo && c.ejecutivo.trim().toLowerCase() === user.name.trim().toLowerCase();
+      });
+
+      const filtered = misContratos.filter(c => c.entidad.toLowerCase().includes(search.toLowerCase()));
+
+      return (
+        <div className="min-h-screen bg-[#f8f9fa] flex flex-col">
+          <header className="bg-[#e0e1dd] py-4 px-6 flex justify-between items-center border-b border-gray-300 shadow-sm z-20">
+            <div className="flex items-center gap-3">
+              <i data-lucide="folder-open" className="text-[#1a8241] w-7 h-7"></i>
+              <div>
+                <h1 className="text-xl font-bold text-[#1a8241] leading-tight">Selección de Convenio / Contrato</h1>
+                <p className="text-xs text-gray-600 font-medium">Plataforma ACTIVA</p>
+              </div>
+            </div>
+            <div className="flex items-center gap-4">
+              <div className="text-right hidden sm:block">
+                <p className="text-[10px] text-gray-500 uppercase tracking-widest font-bold">Ejecutivo</p>
+                <p className="text-sm font-bold text-[#1a8241]">{user.name}</p>
+              </div>
+              <button onClick={onLogout} className="p-2 text-gray-600 hover:bg-black/10 hover:text-[#1a8241] rounded-lg transition-colors flex items-center gap-2">
+                <i data-lucide="log-out" className="w-5 h-5"></i>
+                <span className="hidden sm:inline text-sm font-medium">Salir</span>
+              </button>
+            </div>
+          </header>
+
+          <main className="flex-1 p-6 max-w-7xl mx-auto w-full anim-fade">
+            <div className="bg-white p-5 rounded-xl shadow-sm border border-gray-200 mb-6 flex items-center gap-3">
+              <i data-lucide="search" className="text-gray-400 w-5 h-5"></i>
+              <input type="text" placeholder="Buscar por nombre de la entidad / cliente..." value={search} onChange={e => setSearch(e.target.value)} className="w-full text-base outline-none text-gray-700 placeholder-gray-400 font-medium" />
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
+              {filtered.map(c => (
+                <div key={c.id} onClick={() => onSelectContract(c)} className="bg-white border border-gray-200 rounded-xl p-5 cursor-pointer hover:border-[#1a8241] hover:shadow-lg transition-all group relative overflow-hidden flex flex-col justify-between min-h-[120px]">
+                  <div className="absolute left-0 top-0 bottom-0 w-1.5 bg-gray-200 group-hover:bg-[#1a8241] transition-colors"></div>
+                  <div>
+                    <h3 className="text-sm font-bold text-gray-800 leading-snug group-hover:text-[#1a8241] transition-colors">{c.entidad}</h3>
+                  </div>
+                  <div className="mt-4 text-right">
+                    <span className="text-xs font-semibold text-gray-400 group-hover:text-[#1a8241] flex items-center justify-end gap-1">
+                      Ver Órdenes <i data-lucide="arrow-right" className="w-3 h-3"></i>
+                    </span>
+                  </div>
+                </div>
+              ))}
+              {filtered.length === 0 && (
+                <div className="col-span-full py-12 text-center text-gray-500">
+                  <i data-lucide="search-x" className="w-12 h-12 mx-auto mb-3 opacity-20"></i>
+                  <p>No se encontraron contratos asociados a tu perfil para esta búsqueda.</p>
+                </div>
+              )}
+            </div>
+          </main>
+        </div>
+      );
+    };
+
+    // --- PANTALLA 3: APLICATIVO PRINCIPAL ---
+    const MainApp = ({ user, contract, onBackToContracts, dbData, setDbData, showToast }) => {
+      const [isModalOpen, setIsModalOpen] = useState(false);
+      const [editingRecord, setEditingRecord] = useState(null);
+      const [isSyncing, setIsSyncing] = useState(false);
+
+      useEffect(() => { if (typeof lucide !== "undefined") lucide.createIcons(); });
+
+      const contratoKey = dbData.headers.find(h => h.trim().toLowerCase() === 'contrato');
+
+      const ordenesDelContrato = dbData.ordenes.filter(o => {
+        if (!contratoKey) return false;
+        return o[contratoKey]?.toString().trim().toLowerCase() === contract.entidad.trim().toLowerCase();
+      });
+
+      const displayHeaders = dbData.headers.filter(h => {
+        const lowerH = h.trim().toLowerCase();
+        return lowerH !== 'id' && lowerH !== 'contrato';
+      });
+
+      const openModal = (record = null) => {
+        setEditingRecord(record);
+        setIsModalOpen(true);
+      };
+
+      const handleSave = (e) => {
+        e.preventDefault();
+        const fd = new FormData(e.target);
         
-        var idCount = 0;
-        for (var c = headers.length - 1; c >= 0; c--) {
-          if (headers[c].toLowerCase() === 'id') {
-            idCount++;
-            if (idCount > 1) sheetCliente.deleteColumn(c + 1);
-          }
+        let newRecord = { 
+          id: editingRecord ? editingRecord.id : "",
+        };
+        
+        if (contratoKey) {
+          newRecord[contratoKey] = contract.entidad; 
+        } else {
+          newRecord['Contrato'] = contract.entidad;
         }
         
-        dataO = sheetCliente.getDataRange().getDisplayValues();
-        headers = dataO[0].map(function(h) { return h.toString().trim(); });
+        for (let [key, value] of fd.entries()) { newRecord[key] = value; }
+
+        let updatedOrdenes = [...dbData.ordenes];
+        if (editingRecord) {
+          updatedOrdenes = updatedOrdenes.map(x => x.id === editingRecord.id ? newRecord : x);
+        } else {
+          newRecord.id = "temp-" + Date.now();
+          updatedOrdenes.push(newRecord);
+        }
+        setDbData({ ...dbData, ordenes: updatedOrdenes });
+        setIsModalOpen(false);
+        setIsSyncing(true);
+
+        fetch(GOOGLE_SHEETS_WEBAPP_URL, {
+          method: 'POST',
+          body: JSON.stringify({ action: 'save', record: newRecord })
+        })
+        .then(res => res.json())
+        .then(res => {
+          if(res.status === 'success') showToast(editingRecord ? "Orden actualizada" : "Orden creada");
+          else showToast("Error al guardar: " + res.message, "error");
+        })
+        .catch(err => showToast("Error de conexión: " + err, "error"))
+        .finally(() => setIsSyncing(false));
+      };
+
+      const handleDelete = (id) => {
+        if (!confirm("¿Eliminar esta orden permanentemente?")) return;
         
-        var idIndex = headers.findIndex(function(h) { return h.toLowerCase() === 'id'; });
-        if (idIndex === -1) {
-          sheetCliente.insertColumnBefore(1);
-          sheetCliente.getRange(1, 1).setValue('id');
-          dataO = sheetCliente.getDataRange().getDisplayValues();
-          headers = dataO[0].map(function(h) { return h.toString().trim(); });
-          idIndex = 0;
+        setDbData({ ...dbData, ordenes: dbData.ordenes.filter(x => x.id !== id) });
+        setIsSyncing(true);
+
+        fetch(GOOGLE_SHEETS_WEBAPP_URL, {
+          method: 'POST',
+          body: JSON.stringify({ action: 'delete', record: { id: id } })
+        })
+        .then(res => res.json())
+        .then(res => {
+          if(res.status === 'success') showToast("Orden eliminada");
+          else showToast("Error al eliminar: " + res.message, "error");
+        })
+        .catch(err => showToast("Error de conexión: " + err, "error"))
+        .finally(() => setIsSyncing(false));
+      };
+
+      const exportData = () => {
+        if(ordenesDelContrato.length === 0) { showToast("No hay órdenes para exportar", "error"); return; }
+        const ws = XLSX.utils.json_to_sheet(ordenesDelContrato);
+        const wb = XLSX.utils.book_new();
+        XLSX.utils.book_append_sheet(wb, ws, "Órdenes");
+        XLSX.writeFile(wb, `Ordenes_${contract.entidad.substring(0,20).replace(/[^a-z0-9]/gi, '_')}.xlsx`);
+      };
+
+      return (
+        <div className="min-h-screen bg-[#f8f9fa] flex flex-col font-sans">
+          <header className="bg-[#e0e1dd] py-3 px-4 sm:px-6 flex justify-between items-center border-b border-gray-300 shadow-sm z-20">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 bg-white rounded-full flex items-center justify-center text-[#1a8241] shadow-sm">
+                <i data-lucide="file-text" className="w-5 h-5"></i>
+              </div>
+              <div>
+                <h1 className="text-lg sm:text-xl font-bold text-[#1a8241] leading-tight">Órdenes de Pedido</h1>
+                <p className="text-[11px] font-bold text-gray-600 bg-white/50 inline-block px-2 py-0.5 rounded uppercase mt-0.5 border border-gray-300">
+                  {contract.entidad}
+                </p>
+              </div>
+            </div>
+            <div className="flex items-center gap-3">
+              {isSyncing && <span className="text-xs text-gray-500 flex items-center gap-1"><i data-lucide="refresh-cw" className="w-3 h-3 animate-spin"></i> Guardando...</span>}
+              <button onClick={onBackToContracts} className="text-xs sm:text-sm font-semibold bg-white border border-gray-300 text-gray-700 px-3 py-2 rounded-lg hover:bg-gray-50 transition-colors shadow-sm flex items-center gap-2">
+                <i data-lucide="arrow-left" className="w-4 h-4"></i> <span className="hidden sm:inline">Cambiar Contrato</span>
+              </button>
+            </div>
+          </header>
+
+          <div className="flex flex-1 overflow-hidden relative">
+            <main className="flex-1 p-4 sm:p-6 overflow-y-auto bg-[#f8f9fa] w-full">
+              <div className="flex flex-col sm:flex-row justify-between items-center mb-5 gap-4 bg-white p-5 rounded-xl shadow-sm border border-gray-200">
+                <div className="flex items-center gap-4">
+                  <h2 className="text-xl font-bold text-gray-800 flex items-center gap-2">
+                    <i data-lucide="list" className="text-[#1a8241]"></i> Listado de Órdenes
+                  </h2>
+                </div>
+                <div className="flex gap-3">
+                  <button onClick={exportData} className="px-4 py-2 bg-blue-50 text-blue-700 hover:bg-blue-100 rounded-lg text-sm font-bold flex items-center gap-2 transition-colors border border-blue-200">
+                    <i data-lucide="download" className="w-4 h-4"></i> Exportar
+                  </button>
+                  <button onClick={() => openModal()} className="px-4 py-2 bg-[#1a8241] text-white hover:bg-green-800 rounded-lg text-sm font-bold flex items-center gap-2 shadow-sm transition-colors">
+                    <i data-lucide="plus" className="w-4 h-4"></i> Nueva Orden
+                  </button>
+                </div>
+              </div>
+
+              <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm text-left border-collapse whitespace-nowrap">
+                    <thead className="bg-[#1a8241] text-white">
+                      <tr>
+                        {displayHeaders.map(h => (
+                          <th key={h} className="p-3 border-r border-green-600/50 uppercase text-xs">{h}</th>
+                        ))}
+                        <th className="p-3 uppercase text-xs text-center sticky right-0 bg-[#1a8241] z-10">Acciones</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {ordenesDelContrato.length === 0 ? (
+                        <tr><td colSpan={displayHeaders.length + 1} className="text-center py-10 text-gray-500 font-medium">No hay órdenes registradas en este contrato.</td></tr>
+                      ) : (
+                        ordenesDelContrato.map((ord, i) => (
+                          <tr key={ord.id} className={`${i % 2 === 0 ? "bg-white" : "bg-gray-50"} hover:bg-green-50 border-b border-gray-100`}>
+                            {displayHeaders.map(h => {
+                              const cellData = ord[h];
+                              return (
+                                <td key={h} className="p-3 text-gray-700 max-w-[300px] truncate" title={cellData}>
+                                  {cellData}
+                                </td>
+                              );
+                            })}
+                            <td className="p-3 text-center whitespace-nowrap sticky right-0 bg-inherit shadow-[-4px_0_6px_-2px_rgba(0,0,0,0.05)]">
+                              <button onClick={() => openModal(ord)} className="text-blue-600 hover:bg-blue-50 p-1.5 rounded mr-1"><i data-lucide="edit-2" className="w-4 h-4"></i></button>
+                              <button onClick={() => handleDelete(ord.id)} className="text-red-500 hover:bg-red-50 p-1.5 rounded"><i data-lucide="trash-2" className="w-4 h-4"></i></button>
+                            </td>
+                          </tr>
+                        ))
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </main>
+          </div>
+
+          {/* Modal Formulario Dinámico con Listas y Campos Obligatorios */}
+          {isModalOpen && (
+            <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4 z-50 anim-fade" onClick={() => setIsModalOpen(false)}>
+              <div className="bg-white rounded-2xl w-full max-w-4xl shadow-2xl p-6 anim-slide-up" onClick={e => e.stopPropagation()}>
+                <div className="flex justify-between items-center mb-5 border-b border-gray-100 pb-3">
+                  <h2 className="text-xl font-bold text-[#1a8241]">
+                    {editingRecord ? `Editar Orden` : `Nueva Orden de Pedido`}
+                  </h2>
+                  <button onClick={() => setIsModalOpen(false)} className="text-gray-400 hover:text-gray-800"><i data-lucide="x" className="w-5 h-5"></i></button>
+                </div>
+
+                <form onSubmit={handleSave} className="space-y-4 max-h-[70vh] overflow-y-auto px-1">
+                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                    {displayHeaders.map(h => {
+                      const headerLower = h.toLowerCase().trim();
+                      const isRequired = COLUMNAS_OBLIGATORIAS.includes(headerLower);
+                      
+                      // Buscar si existe en "Listas" (ignorando mayúsculas y espacios)
+                      const listKey = Object.keys(dbData.listas || {}).find(k => k.toLowerCase().trim() === headerLower);
+                      const listOptions = listKey ? dbData.listas[listKey] : null;
+
+                      let inputType = "text";
+                      if (headerLower.includes("fecha")) inputType = "date";
+                      else if (headerLower.includes("cantidad") || headerLower.includes("valor") || headerLower.includes("precio")) inputType = "number";
+
+                      return (
+                        <div key={h} className={headerLower.includes("observacion") || headerLower.includes("descripci") || headerLower.includes("evento") ? "md:col-span-2 lg:col-span-3" : ""}>
+                          <label className="block text-[11px] font-bold text-gray-500 uppercase mb-1">
+                            {h} {isRequired && <span className="text-red-500">*</span>}
+                          </label>
+                          
+                          {listOptions ? (
+                            // Renderizar Lista Desplegable
+                            <select name={h} required={isRequired} defaultValue={editingRecord?.[h] || ""} className="w-full p-2.5 border border-gray-300 rounded-lg focus:ring-1 focus:ring-[#1a8241] outline-none text-sm bg-gray-50">
+                              <option value="" disabled>Seleccione una opción...</option>
+                              {listOptions.map((opt, idx) => (
+                                <option key={idx} value={opt}>{opt}</option>
+                              ))}
+                            </select>
+                          ) : headerLower.includes("observacion") || headerLower.includes("descripci") ? (
+                            // Renderizar Área de Texto
+                            <textarea name={h} required={isRequired} defaultValue={editingRecord?.[h] || ""} className="w-full p-2.5 border border-gray-300 rounded-lg focus:ring-1 focus:ring-[#1a8241] outline-none text-sm bg-gray-50 resize-y min-h-[80px]"></textarea>
+                          ) : (
+                            // Renderizar Input (Texto, Número o Fecha)
+                            <input type={inputType} step={inputType==="number" ? "any" : undefined} name={h} required={isRequired} defaultValue={editingRecord?.[h] || ""} className="w-full p-2.5 border border-gray-300 rounded-lg focus:ring-1 focus:ring-[#1a8241] outline-none text-sm bg-gray-50" />
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+
+                  <div className="pt-4 flex justify-end gap-3 border-t border-gray-100 mt-6 sticky bottom-0 bg-white pb-2">
+                    <button type="button" onClick={() => setIsModalOpen(false)} className="px-5 py-2.5 rounded-lg text-sm font-bold text-gray-600 hover:bg-gray-100 transition-colors">Cancelar</button>
+                    <button type="submit" className="px-5 py-2.5 bg-[#1a8241] text-white rounded-lg text-sm font-bold hover:bg-green-800 transition-colors flex items-center gap-2">
+                      <i data-lucide="save" className="w-4 h-4"></i> Guardar
+                    </button>
+                  </div>
+                </form>
+              </div>
+            </div>
+          )}
+        </div>
+      );
+    };
+
+    // --- CONTENEDOR PRINCIPAL ---
+    function App() {
+      const [user, setUser] = useState(null);
+      const [error, setError] = useState(null);
+      const [loading, setLoading] = useState(false);
+      const [contract, setContract] = useState(null);
+      const [toast, setToast] = useState(null);
+
+      const [dbData, setDbData] = useState({ contratos: [], ordenes: [], headers: [], usuarios: [], listas: {} });
+      const [loadingDb, setLoadingDb] = useState(true);
+
+      const showToast = (message, type = "success") => setToast({ message, type, key: Date.now() });
+
+      useEffect(() => {
+        if (!GOOGLE_SHEETS_WEBAPP_URL || GOOGLE_SHEETS_WEBAPP_URL === "PEGAR_AQUI_LA_URL_DE_APPS_SCRIPT") {
+          setLoadingDb(false);
+          return;
+        }
+        
+        fetch(GOOGLE_SHEETS_WEBAPP_URL)
+          .then(res => res.json())
+          .then(data => {
+             if(data.status === 'success') {
+               setDbData({ 
+                 contratos: data.contratos || [], 
+                 ordenes: data.ordenes || [], 
+                 headers: data.headers || [], 
+                 usuarios: data.usuarios || [],
+                 listas: data.listas || {}
+               });
+             } else {
+               showToast("Error de la BD: " + data.message, "error");
+             }
+             setLoadingDb(false);
+          })
+          .catch(e => {
+             showToast("Fallo al conectar con la base de datos", "error");
+             setLoadingDb(false);
+          });
+      }, []);
+
+      const handleLogin = (ejecutivo, password) => {
+        setLoading(true);
+        setError(null);
+        setTimeout(() => {
+          const usuarioEncontrado = dbData.usuarios?.find(u => u.ejecutivo.toLowerCase() === ejecutivo.toLowerCase());
           
-          for(var r = 1; r < dataO.length; r++) {
-            var newId = Utilities.getUuid();
-            sheetCliente.getRange(r+1, 1).setValue(newId);
-            dataO[r][0] = newId;
+          let authExitosa = false;
+          if (usuarioEncontrado) {
+            authExitosa = (usuarioEncontrado.password === password);
+          } else {
+            authExitosa = (ejecutivo === "Katheryn Zapata" && password === "Activa2026*");
           }
-        }
 
-        for (var i = 1; i < dataO.length; i++) {
-          var obj = {};
-          for (var j = 0; j < headers.length; j++) {
-            obj[headers[j]] = dataO[i][j];
+          if (authExitosa) {
+            setUser({ name: ejecutivo, role: "Ejecutivo" });
+          } else {
+            setError("Contraseña incorrecta para este ejecutivo.");
           }
-          ordenes.push(obj);
-        }
-      }
-    }
+          setLoading(false);
+        }, 800);
+      };
 
-    return ContentService.createTextOutput(JSON.stringify({
-      status: 'success',
-      usuarios: usuarios,
-      contratos: contratos,
-      listas: listas,
-      ordenes: ordenes,
-      headers: headers
-    })).setMimeType(ContentService.MimeType.JSON);
+      const handleLogout = () => {
+        setUser(null);
+        setContract(null);
+      };
 
-  } catch (error) {
-    return ContentService.createTextOutput(JSON.stringify({
-      status: 'error',
-      message: error.toString()
-    })).setMimeType(ContentService.MimeType.JSON);
-  }
-}
-
-function doPost(e) {
-  try {
-    var data = JSON.parse(e.postData.contents);
-    var ss = SpreadsheetApp.openById(SPREADSHEET_ID);
-    var sheetCliente = ss.getSheetByName('Cliente');
-    
-    var action = data.action;
-    var record = data.record;
-
-    var sheetData = sheetCliente.getDataRange().getDisplayValues();
-    var headers = sheetData[0].map(function(h){ return h.toString().trim(); });
-    var idIndex = headers.findIndex(function(h){ return h.toLowerCase() === 'id'; });
-
-    if (action === 'save') {
-      var rowIndex = -1;
-      if (record.id) {
-        for (var i = 1; i < sheetData.length; i++) {
-          if (sheetData[i][idIndex] == record.id) {
-            rowIndex = i + 1;
-            break;
-          }
-        }
+      if (loadingDb) {
+        return (
+          <div className="min-h-screen bg-[#f8f9fa] flex flex-col items-center justify-center p-4">
+            <i data-lucide="refresh-cw" className="w-10 h-10 text-[#1a8241] animate-spin mb-4"></i>
+            <h2 className="text-xl font-bold text-gray-700">Conectando con la base de datos...</h2>
+            <p className="text-gray-500 mt-2 text-center text-sm max-w-md">Por favor, espera mientras sincronizamos la información de contratos y listas.</p>
+          </div>
+        );
       }
 
-      if (rowIndex > -1) {
-        for (var h = 0; h < headers.length; h++) {
-          var colName = headers[h];
-          if (record.hasOwnProperty(colName) && colName.toLowerCase() !== 'id') {
-            sheetCliente.getRange(rowIndex, h + 1).setValue(record[colName]);
-          }
-        }
-      } else {
-        if (!record.id) record.id = Utilities.getUuid();
-        var newRow = [];
-        for (var h = 0; h < headers.length; h++) {
-          var colName = headers[h];
-          newRow.push(record.hasOwnProperty(colName) ? record[colName] : "");
-        }
-        sheetCliente.appendRow(newRow);
+      if (!user) return <LoginScreen onLogin={handleLogin} error={error} loading={loading} usuariosDisponibles={dbData.usuarios} />;
+
+      if (dbData.contratos.length === 0) {
+        return (
+          <div className="min-h-screen bg-[#f8f9fa] flex flex-col items-center justify-center p-4 text-center">
+             <i data-lucide="alert-triangle" className="w-12 h-12 text-yellow-500 mb-4"></i>
+             <h2 className="text-xl font-bold text-gray-800">Conexión Incompleta o Sin Datos</h2>
+             <p className="text-gray-600 mt-2">No se encontraron contratos registrados. Asegúrate de tener datos en la hoja 'Contratos'.</p>
+          </div>
+        );
       }
+
+      if (!contract) return (
+        <>
+          <ContractSelection user={user} onSelectContract={setContract} onLogout={handleLogout} contratos={dbData.contratos} />
+          {toast && <Toast message={toast.message} type={toast.type} onClose={() => setToast(null)} />}
+        </>
+      );
       
-    } else if (action === 'delete') {
-      if (record.id) {
-        for (var i = 1; i < sheetData.length; i++) {
-          if (sheetData[i][idIndex] == record.id) {
-            sheetCliente.deleteRow(i + 1);
-            break;
-          }
-        }
-      }
+      return <MainApp user={user} contract={contract} onBackToContracts={() => setContract(null)} dbData={dbData} setDbData={setDbData} showToast={showToast} />;
     }
 
-    return ContentService.createTextOutput(JSON.stringify({ status: 'success' })).setMimeType(ContentService.MimeType.JSON);
-
-  } catch (error) {
-    return ContentService.createTextOutput(JSON.stringify({ status: 'error', message: error.toString() })).setMimeType(ContentService.MimeType.JSON);
-  }
-}
+    const root = ReactDOM.createRoot(document.getElementById("root"));
+    root.render(<App />);
+  </script>
+</body>
+</html>
