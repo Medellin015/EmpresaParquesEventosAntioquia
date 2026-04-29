@@ -41,11 +41,9 @@
     const { useState, useMemo, useEffect, useRef, useCallback } = React;
 
     // --- CONFIGURACIÓN DE BASE DE DATOS Y USUARIOS ---
-    
-    // IMPORTANTE: Pega aquí la URL que te generó Google Apps Script
     const GOOGLE_SHEETS_WEBAPP_URL = "https://script.google.com/macros/s/AKfycbzphjFRhD1cfyY7IPbEJzu-EcT8km_zP36dyWvsLrZvz7KKXTgH0_LyS5tRXMt4Y6c/exec"; 
 
-    // Lista de columnas que son estrictamente obligatorias según tu archivo
+    // Lista de columnas obligatorias
     const COLUMNAS_OBLIGATORIAS = [
       "importancia estratégica",
       "fecha inicio evento",
@@ -75,6 +73,76 @@
           <i data-lucide={iconName} className="w-5 h-5 flex-shrink-0 mt-0.5"></i>
           <div className="flex-1 text-sm font-medium">{message}</div>
           <button onClick={onClose} className="opacity-60 hover:opacity-100 transition-opacity"><i data-lucide="x" className="w-4 h-4"></i></button>
+        </div>
+      );
+    };
+
+    // Componente de Autocompletado Estricto
+    const SearchableSelect = ({ name, options, defaultValue, required, className, onSelect }) => {
+      const [isOpen, setIsOpen] = useState(false);
+      const [search, setSearch] = useState(defaultValue || "");
+      const wrapperRef = useRef(null);
+
+      useEffect(() => {
+        setSearch(defaultValue || "");
+      }, [defaultValue]);
+
+      useEffect(() => {
+        const handleClickOutside = (event) => {
+          if (wrapperRef.current && !wrapperRef.current.contains(event.target)) {
+            setIsOpen(false);
+            // Validación estricta: Si lo que escribió no está en la lista, lo vacía
+            if (search && !options.includes(search)) {
+              setSearch("");
+              if (onSelect) onSelect("");
+            }
+          }
+        };
+        document.addEventListener("mousedown", handleClickOutside);
+        return () => document.removeEventListener("mousedown", handleClickOutside);
+      }, [search, options, onSelect]);
+
+      const filtered = options.filter(o => o.toLowerCase().includes(search.toLowerCase()));
+
+      return (
+        <div className="relative" ref={wrapperRef}>
+          <input
+            type="text"
+            name={name}
+            required={required}
+            value={search}
+            onChange={e => {
+              setSearch(e.target.value);
+              setIsOpen(true);
+            }}
+            onFocus={() => setIsOpen(true)}
+            className={className}
+            autoComplete="off"
+            placeholder="Escribe para buscar..."
+          />
+          {isOpen && filtered.length > 0 && (
+            <ul className="absolute z-50 w-full bg-white border border-gray-300 shadow-2xl max-h-56 overflow-y-auto rounded-md mt-1 divide-y divide-gray-100">
+              {filtered.map((opt, i) => (
+                <li
+                  key={i}
+                  className="px-4 py-2 cursor-pointer hover:bg-green-50 hover:text-[#1a8241] text-sm text-gray-700 transition-colors"
+                  onMouseDown={(e) => {
+                    e.preventDefault(); // Previene que el input pierda el foco antes del clic
+                    setSearch(opt);
+                    setIsOpen(false);
+                    if (onSelect) onSelect(opt);
+                  }}
+                >
+                  {opt}
+                </li>
+              ))}
+            </ul>
+          )}
+          {isOpen && search && filtered.length === 0 && (
+            <div className="absolute z-50 w-full bg-white border border-red-200 shadow-xl p-3 text-sm text-red-500 rounded-md mt-1 text-center font-medium">
+              Contrato no encontrado en la lista.
+            </div>
+          )}
         </div>
       );
     };
@@ -206,6 +274,7 @@
       const [isModalOpen, setIsModalOpen] = useState(false);
       const [editingRecord, setEditingRecord] = useState(null);
       const [isSyncing, setIsSyncing] = useState(false);
+      const formRef = useRef(null);
 
       useEffect(() => { if (typeof lucide !== "undefined") lucide.createIcons(); });
 
@@ -226,6 +295,37 @@
         setIsModalOpen(true);
       };
 
+      // Manejador matemático en tiempo real
+      const handleFormChange = (e) => {
+        const form = formRef.current;
+        if(!form) return;
+        const getField = (searchStr) => Array.from(form.elements).find(el => el.name && el.name.toLowerCase().includes(searchStr.toLowerCase()));
+
+        const valFacturadoEl = getField("valor facturado");
+        const valAprobadoEl = getField("valor aprobado");
+        
+        const honAntesIvaEl = getField("antes de iva");
+        const honIvaIncEl = getField("iva incluido");
+        const porLiberarEl = getField("por liberar");
+
+        const vFacturado = valFacturadoEl ? (parseFloat(valFacturadoEl.value) || 0) : 0;
+        const vAprobado = valAprobadoEl ? (parseFloat(valAprobadoEl.value) || 0) : 0;
+        
+        if (porLiberarEl) {
+           porLiberarEl.value = (vAprobado - vFacturado).toFixed(2);
+        }
+        
+        const admon = contract.porcentajeAdmon || 0;
+        const honAntes = vFacturado * admon;
+        
+        if (honAntesIvaEl) {
+           honAntesIvaEl.value = honAntes.toFixed(2);
+        }
+        if (honIvaIncEl) {
+           honIvaIncEl.value = (honAntes * 1.19).toFixed(2);
+        }
+      };
+
       const handleSave = (e) => {
         e.preventDefault();
         const fd = new FormData(e.target);
@@ -242,6 +342,22 @@
         
         for (let [key, value] of fd.entries()) { newRecord[key] = value; }
 
+        // Recálculo Forzado de campos bloqueados por seguridad
+        const admon = contract.porcentajeAdmon || 0;
+        const vFacturado = parseFloat(newRecord[Object.keys(newRecord).find(k => k.toLowerCase().includes("valor facturado"))]) || 0;
+        const vAprobado = parseFloat(newRecord[Object.keys(newRecord).find(k => k.toLowerCase().includes("valor aprobado"))]) || 0;
+        
+        const keyAntesIva = Object.keys(newRecord).find(k => k.toLowerCase().includes("antes de iva"));
+        const keyIvaInc = Object.keys(newRecord).find(k => k.toLowerCase().includes("iva incluido"));
+        const keyLiberar = Object.keys(newRecord).find(k => k.toLowerCase().includes("por liberar"));
+        const keyEjecutivo = Object.keys(newRecord).find(k => k.toLowerCase() === "ejecutivo");
+
+        if (keyAntesIva) newRecord[keyAntesIva] = (vFacturado * admon).toFixed(2);
+        if (keyIvaInc) newRecord[keyIvaInc] = (vFacturado * admon * 1.19).toFixed(2);
+        if (keyLiberar) newRecord[keyLiberar] = (vAprobado - vFacturado).toFixed(2);
+        if (keyEjecutivo && !newRecord[keyEjecutivo]) newRecord[keyEjecutivo] = user.name;
+
+        // Actualización optimista en UI
         let updatedOrdenes = [...dbData.ordenes];
         if (editingRecord) {
           updatedOrdenes = updatedOrdenes.map(x => x.id === editingRecord.id ? newRecord : x);
@@ -372,7 +488,7 @@
             </main>
           </div>
 
-          {/* Modal Formulario Dinámico con Listas y Campos Obligatorios */}
+          {/* Modal Formulario Dinámico con Autocompletado y Lógica */}
           {isModalOpen && (
             <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4 z-50 anim-fade" onClick={() => setIsModalOpen(false)}>
               <div className="bg-white rounded-2xl w-full max-w-4xl shadow-2xl p-6 anim-slide-up" onClick={e => e.stopPropagation()}>
@@ -380,31 +496,59 @@
                   <h2 className="text-xl font-bold text-[#1a8241]">
                     {editingRecord ? `Editar Orden` : `Nueva Orden de Pedido`}
                   </h2>
+                  <div className="text-xs font-bold text-[#1a8241] bg-green-50 px-3 py-1 rounded">
+                    % Admón del Contrato: {((contract.porcentajeAdmon || 0) * 100).toFixed(1)}%
+                  </div>
                   <button onClick={() => setIsModalOpen(false)} className="text-gray-400 hover:text-gray-800"><i data-lucide="x" className="w-5 h-5"></i></button>
                 </div>
 
-                <form onSubmit={handleSave} className="space-y-4 max-h-[70vh] overflow-y-auto px-1">
+                <form ref={formRef} onSubmit={handleSave} onChange={handleFormChange} className="space-y-4 max-h-[70vh] overflow-y-auto px-1">
                   <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                     {displayHeaders.map(h => {
                       const headerLower = h.toLowerCase().trim();
-                      const isRequired = COLUMNAS_OBLIGATORIAS.includes(headerLower);
                       
-                      // Buscar si existe en "Listas" (ignorando mayúsculas y espacios)
+                      // Identificación de campos matemáticos automáticos y Nombre Proveedor automático
+                      const isAutomaticMath = headerLower.includes("antes de iva") || headerLower.includes("iva incluido") || headerLower.includes("por liberar");
+                      const isAutoEjecutivo = headerLower === "ejecutivo";
+                      const isAutoNombreProv = headerLower.includes("nombre proveedor");
+                      const isReadOnly = isAutomaticMath || isAutoEjecutivo || isAutoNombreProv || headerLower === "cdp" || headerLower === "rp";
+                      
+                      const isRequired = COLUMNAS_OBLIGATORIAS.includes(headerLower) && !isReadOnly;
+                      
                       const listKey = Object.keys(dbData.listas || {}).find(k => k.toLowerCase().trim() === headerLower);
                       const listOptions = listKey ? dbData.listas[listKey] : null;
 
                       let inputType = "text";
                       if (headerLower.includes("fecha")) inputType = "date";
-                      else if (headerLower.includes("cantidad") || headerLower.includes("valor") || headerLower.includes("precio")) inputType = "number";
+                      else if (headerLower.includes("cantidad") || headerLower.includes("valor") || headerLower.includes("precio") || isAutomaticMath) inputType = "number";
 
                       return (
                         <div key={h} className={headerLower.includes("observacion") || headerLower.includes("descripci") || headerLower.includes("evento") ? "md:col-span-2 lg:col-span-3" : ""}>
-                          <label className="block text-[11px] font-bold text-gray-500 uppercase mb-1">
-                            {h} {isRequired && <span className="text-red-500">*</span>}
+                          <label className="block text-[11px] font-bold text-gray-500 uppercase mb-1 flex items-center justify-between">
+                            <span>{h} {isRequired && <span className="text-red-500">*</span>}</span>
+                            {isReadOnly && <i data-lucide="lock" title="Campo automático" className="w-3 h-3 text-gray-400"></i>}
                           </label>
                           
-                          {listOptions ? (
-                            // Renderizar Lista Desplegable
+                          {headerLower.includes("contrato proveedor") ? (
+                            <SearchableSelect 
+                              name={h}
+                              options={listOptions || []}
+                              defaultValue={editingRecord?.[h] || ""}
+                              required={isRequired}
+                              className={`w-full p-2.5 border border-gray-300 rounded-lg outline-none text-sm focus:ring-1 focus:ring-[#1a8241] bg-gray-50`}
+                              onSelect={(val) => {
+                                // Al seleccionar el contrato, auto-rellenar Nombre Proveedor
+                                const form = formRef.current;
+                                if(form) {
+                                  const nombreEl = Array.from(form.elements).find(el => el.name && el.name.toLowerCase().includes("nombre proveedor"));
+                                  if(nombreEl) {
+                                    const parts = val.split('-');
+                                    nombreEl.value = parts.length > 1 ? parts.slice(1).join('-').trim() : val;
+                                  }
+                                }
+                              }}
+                            />
+                          ) : listOptions && !isReadOnly ? (
                             <select name={h} required={isRequired} defaultValue={editingRecord?.[h] || ""} className="w-full p-2.5 border border-gray-300 rounded-lg focus:ring-1 focus:ring-[#1a8241] outline-none text-sm bg-gray-50">
                               <option value="" disabled>Seleccione una opción...</option>
                               {listOptions.map((opt, idx) => (
@@ -412,11 +556,17 @@
                               ))}
                             </select>
                           ) : headerLower.includes("observacion") || headerLower.includes("descripci") ? (
-                            // Renderizar Área de Texto
-                            <textarea name={h} required={isRequired} defaultValue={editingRecord?.[h] || ""} className="w-full p-2.5 border border-gray-300 rounded-lg focus:ring-1 focus:ring-[#1a8241] outline-none text-sm bg-gray-50 resize-y min-h-[80px]"></textarea>
+                            <textarea name={h} required={isRequired} readOnly={isReadOnly} defaultValue={editingRecord?.[h] || ""} className={`w-full p-2.5 border border-gray-300 rounded-lg outline-none text-sm resize-y min-h-[80px] ${isReadOnly ? 'bg-gray-100 text-gray-500 cursor-not-allowed' : 'focus:ring-1 focus:ring-[#1a8241] bg-gray-50'}`}></textarea>
                           ) : (
-                            // Renderizar Input (Texto, Número o Fecha)
-                            <input type={inputType} step={inputType==="number" ? "any" : undefined} name={h} required={isRequired} defaultValue={editingRecord?.[h] || ""} className="w-full p-2.5 border border-gray-300 rounded-lg focus:ring-1 focus:ring-[#1a8241] outline-none text-sm bg-gray-50" />
+                            <input 
+                              type={inputType} 
+                              step={inputType==="number" ? "any" : undefined} 
+                              name={h} 
+                              readOnly={isReadOnly}
+                              required={isRequired} 
+                              defaultValue={isAutoEjecutivo && !editingRecord ? user.name : (editingRecord?.[h] || "")} 
+                              className={`w-full p-2.5 border border-gray-300 rounded-lg outline-none text-sm transition-colors ${isReadOnly ? 'bg-gray-100 text-gray-500 cursor-not-allowed font-medium' : 'focus:ring-1 focus:ring-[#1a8241] bg-gray-50'}`} 
+                            />
                           )}
                         </div>
                       );
