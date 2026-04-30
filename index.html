@@ -59,11 +59,25 @@
 
     const parseNum = (val) => parseFloat((val || "").toString().replace(/\./g, '')) || 0;
 
+    // Función auxiliar para forzar el formato YYYY-MM-DD para el input type="date"
+    const formatDateForInput = (val) => {
+      if (!val) return "";
+      let str = String(val).trim();
+      if (/^\d{4}-\d{2}-\d{2}$/.test(str.substring(0,10))) return str.substring(0,10);
+      let parts = str.split(/[\/\-]/);
+      if (parts.length === 3 && parts[2].length === 4) {
+        return `${parts[2]}-${parts[1].padStart(2, '0')}-${parts[0].padStart(2, '0')}`;
+      }
+      let d = new Date(val);
+      if (!isNaN(d.getTime())) return d.toISOString().split('T')[0];
+      return str;
+    };
+
     // --- COMPONENTES UI Y GRÁFICAS ---
 
     const Toast = ({ message, type, onClose }) => {
       useEffect(() => {
-        const t = setTimeout(onClose, type === 'error' ? 5000 : 3500); // Errores duran más en pantalla
+        const t = setTimeout(onClose, type === 'error' ? 5000 : 3500); 
         return () => clearTimeout(t);
       }, [onClose, type]);
 
@@ -127,7 +141,6 @@
       );
     };
 
-    // Componente de Autocompletado Estricto
     const SearchableSelect = ({ name, options, defaultValue, required, className, onSelect }) => {
       const [isOpen, setIsOpen] = useState(false);
       const [search, setSearch] = useState(defaultValue || "");
@@ -336,7 +349,6 @@
               </div>
             </div>
             
-            {/* Tabs */}
             <div className="px-6 flex gap-6 mt-2">
               <button 
                 onClick={() => setActiveTab('contratos')}
@@ -370,7 +382,7 @@
                       </div>
                       <div className="mt-4 flex justify-between items-center">
                         {isDirectivo && <span className="text-[10px] text-gray-400 font-bold uppercase"><i data-lucide="user" className="w-3 h-3 inline"></i> {c.ejecutivo || 'Sin Asignar'}</span>}
-                        <span className={`text-xs font-semibold flex items-center gap-1 ${isDirectivo ? 'text-gray-400 group-hover:text-[#1a8241] ml-auto' : 'text-gray-400 group-hover:text-[#1a8241] ml-auto'}`}>
+                        <span className={`text-xs font-semibold flex items-center gap-1 text-gray-400 group-hover:text-[#1a8241] ml-auto`}>
                           {isDirectivo ? 'Ver Detalles' : 'Gestionar Órdenes'} <i data-lucide="arrow-right" className="w-3 h-3"></i>
                         </span>
                       </div>
@@ -512,7 +524,6 @@
         if (keyLiberar) newRecord[keyLiberar] = Math.round(vAprobado - vFacturado);
         if (keyEjecutivo && !newRecord[keyEjecutivo]) newRecord[keyEjecutivo] = user.name;
 
-        // Rollback snapshot
         const previousOrdenes = [...dbData.ordenes];
 
         let updatedOrdenes = [...dbData.ordenes];
@@ -549,7 +560,6 @@
         if (isDirectivo) return;
         if (!confirm("¿Eliminar esta orden permanentemente?")) return;
         
-        // Rollback snapshot
         const previousOrdenes = [...dbData.ordenes];
 
         setDbData({ ...dbData, ordenes: dbData.ordenes.filter(x => x.id !== id) });
@@ -574,10 +584,37 @@
         .finally(() => setIsSyncing(false));
       };
 
+      // Modificación exportData para estilo mejorado en Excel
       const exportData = () => {
         if(ordenesDelContrato.length === 0) { showToast("No hay órdenes para exportar", "error"); return; }
         const ws = XLSX.utils.json_to_sheet(ordenesDelContrato);
         const wb = XLSX.utils.book_new();
+        
+        // Estilos para Excel (Colores verdes ACTIVA, y bordes)
+        const range = XLSX.utils.decode_range(ws['!ref']);
+        ws['!cols'] = Object.keys(ordenesDelContrato[0] || {}).map(() => ({ wch: 22 }));
+
+        for (let R = range.s.r; R <= range.e.r; ++R) {
+          for (let C = range.s.c; C <= range.e.c; ++C) {
+            const cell_ref = XLSX.utils.encode_cell({ c: C, r: R });
+            if (!ws[cell_ref]) continue;
+            if (!ws[cell_ref].s) ws[cell_ref].s = {};
+
+            ws[cell_ref].s.border = {
+              top: { style: "thin", color: { rgb: "000000" } },
+              bottom: { style: "thin", color: { rgb: "000000" } },
+              left: { style: "thin", color: { rgb: "000000" } },
+              right: { style: "thin", color: { rgb: "000000" } }
+            };
+
+            if (R === 0) {
+              ws[cell_ref].s.fill = { patternType: "solid", fgColor: { rgb: "1A8241" } };
+              ws[cell_ref].s.font = { bold: true, color: { rgb: "FFFFFF" } };
+              ws[cell_ref].s.alignment = { horizontal: "center", vertical: "center" };
+            }
+          }
+        }
+
         XLSX.utils.book_append_sheet(wb, ws, "Órdenes");
         XLSX.writeFile(wb, `Ordenes_${contract.entidad.substring(0,20).replace(/[^a-z0-9]/gi, '_')}.xlsx`);
       };
@@ -589,9 +626,7 @@
            contrato: contract.entidad,
            numeroOrdenPedido: paOrderNum
         };
-        // TODO: Llamada fetch al Webhook de Power Automate
         console.log("JSON Formado para Power Automate:", JSON.stringify(payload));
-        
         showToast(`Acción "${paAction}" iniciada para la orden ${paOrderNum}`);
         setPaAction(null);
         setPaOrderNum("");
@@ -622,7 +657,6 @@
           <div className="flex flex-1 overflow-hidden relative">
             <main className="flex-1 p-4 sm:p-6 overflow-y-auto bg-[#f8f9fa] w-full">
               
-              {/* --- INFORMACIÓN ESTÉTICA DEL CONTRATO --- */}
               <div className="bg-white p-5 rounded-xl shadow-sm border border-gray-200 mb-5">
                 <h3 className="text-sm font-bold text-gray-700 mb-4 border-b border-gray-100 pb-2 flex items-center gap-2">
                   <i data-lucide="info" className="w-4 h-4 text-[#1a8241]"></i> Información General del Contrato
@@ -691,7 +725,6 @@
                 </div>
               </div>
 
-              {/* --- BOTONES POWER AUTOMATE --- */}
               <div className="bg-white p-5 rounded-xl shadow-sm border border-gray-200 mb-5">
                  <h3 className="text-sm font-bold text-gray-700 mb-4 border-b border-gray-100 pb-2 flex items-center gap-2">
                    <i data-lucide="zap" className="w-4 h-4 text-indigo-500"></i> Acciones Automatizadas (Flujos)
@@ -705,7 +738,6 @@
                  </div>
               </div>
 
-              {/* --- LISTADO DE ÓRDENES --- */}
               <div className="flex flex-col sm:flex-row justify-between items-center mb-5 gap-4 bg-white p-5 rounded-xl shadow-sm border border-gray-200">
                 <div className="flex items-center gap-4">
                   <h2 className="text-xl font-bold text-gray-800 flex items-center gap-2">
@@ -788,7 +820,6 @@
             </main>
           </div>
 
-          {/* Modal Power Automate */}
           {paAction && (
             <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4 z-50 anim-fade" onClick={() => setPaAction(null)}>
               <div className="bg-white rounded-2xl w-full max-w-sm shadow-2xl p-6 anim-slide-up" onClick={e => e.stopPropagation()}>
@@ -820,7 +851,6 @@
             </div>
           )}
 
-          {/* Modal Formulario Dinámico */}
           {isModalOpen && !isDirectivo && (
             <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4 z-50 anim-fade" onClick={() => setIsModalOpen(false)}>
               <div className="bg-white rounded-2xl w-full max-w-4xl shadow-2xl p-6 anim-slide-up" onClick={e => e.stopPropagation()}>
@@ -909,7 +939,8 @@
                               required={isRequired} 
                               defaultValue={
                                 isAutoEjecutivo && !editingRecord ? user.name : 
-                                (isStrictNumeric && editingRecord?.[h] ? new Intl.NumberFormat('es-CO').format(parseInt(editingRecord[h].toString().replace(/\D/g, ''), 10) || 0) : (editingRecord?.[h] || ""))
+                                (inputType === "date" ? formatDateForInput(editingRecord?.[h]) :
+                                (isStrictNumeric && editingRecord?.[h] ? new Intl.NumberFormat('es-CO').format(parseInt(editingRecord[h].toString().replace(/\D/g, ''), 10) || 0) : (editingRecord?.[h] || "")))
                               } 
                               onInput={(e) => {
                                 if (isStrictNumeric) {
