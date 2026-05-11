@@ -44,7 +44,7 @@
     const GOOGLE_SHEETS_WEBAPP_URL = "https://script.google.com/macros/s/AKfycbzphjFRhD1cfyY7IPbEJzu-EcT8km_zP36dyWvsLrZvz7KKXTgH0_LyS5tRXMt4Y6c/exec"; 
     
     // URL HTTP POST de Power Automate
-    const POWER_AUTOMATE_WEBHOOK_URL = "https://defaulte982e2ab16ea4111b3dff3a537f8d7.16.environment.api.powerplatform.com:443/powerautomate/automations/direct/workflows/96f1f0a21d084c27acde65a8b9b8b85d/triggers/manual/paths/invoke?api-version=1"; 
+    const POWER_AUTOMATE_WEBHOOK_URL = "https://defaulte982e2ab16ea4111b3dff3a537f8d7.16.environment.api.powerplatform.com:443/powerautomate/automations/direct/workflows/96f1f0a21d084c27acde65a8b9b8b85d/triggers/manual/paths/invoke?api-version=1&sp=%2Ftriggers%2Fmanual%2Frun&sv=1.0&sig=tzkuxIsok7SLeODmkFeDNMibiJE2D3IS3LvYjT6fwL4"; 
 
     // Lista de columnas obligatorias
     const COLUMNAS_OBLIGATORIAS = [
@@ -693,29 +693,29 @@
            "estadoInforme": getVal("estado informe de evidencias")
         };
         
-        const actionNameBackup = paAction; // Guardamos la variable antes de limpiar el estado
+        const actionNameBackup = paAction; 
         setPaAction(null);
         setPaOrderNum("");
         
         showToast(`Enviando solicitud para "${actionNameBackup}"...`);
         
         try {
-          const response = await fetch(POWER_AUTOMATE_WEBHOOK_URL, {
+          // El modo 'no-cors' es vital para evitar el bloqueo del navegador al enviar a Power Automate directamente.
+          await fetch(POWER_AUTOMATE_WEBHOOK_URL, {
             method: 'POST',
+            mode: 'no-cors',
             headers: {
               'Content-Type': 'application/json'
             },
             body: JSON.stringify(payload)
           });
           
-          // Consideramos exitoso si la petición se envió correctamente
+          // En modo no-cors el navegador recibe una respuesta "opaca", por lo que asumimos que llegó al servidor si no lanza error de red.
           showToast(`Su solicitud fue exitosa. La acción "${actionNameBackup}" se envió correctamente.`, "success");
           
         } catch(error) {
           console.error("Error Power Automate:", error);
-          // Frecuentemente los webhook de Power Automate bloquean CORS desde el navegador, 
-          // pero el POST SÍ se envía con éxito a los servidores. 
-          showToast(`Su solicitud fue exitosa. La acción "${actionNameBackup}" se envió correctamente.`, "success");
+          showToast(`Error al intentar enviar a Power Automate. Revisa tu conexión a internet.`, "error");
         }
       };
 
