@@ -42,6 +42,9 @@
 
     // --- CONFIGURACIÓN DE BASE DE DATOS Y USUARIOS ---
     const GOOGLE_SHEETS_WEBAPP_URL = "https://script.google.com/macros/s/AKfycbzphjFRhD1cfyY7IPbEJzu-EcT8km_zP36dyWvsLrZvz7KKXTgH0_LyS5tRXMt4Y6c/exec"; 
+    
+    // URL HTTP POST de Power Automate
+    const POWER_AUTOMATE_WEBHOOK_URL = "https://defaulte982e2ab16ea4111b3dff3a537f8d7.16.environment.api.powerplatform.com:443/powerautomate/automations/direct/workflows/96f1f0a21d084c27acde65a8b9b8b85d/triggers/manual/paths/invoke?api-version=1"; 
 
     // Lista de columnas obligatorias
     const COLUMNAS_OBLIGATORIAS = [
@@ -485,7 +488,7 @@
       const pctFacturados = totalAprobado > 0 ? (totalFacturado / totalAprobado) * 100 : 0;
       // -----------------------------------------------------
 
-      const handleFormChange = (e) => {
+      const handleFormChange = () => {
         const form = formRef.current;
         if(!form) return;
         
@@ -502,7 +505,8 @@
         const vAprobado = valAprobadoEl ? parseNum(valAprobadoEl.value) : 0;
         
         if (porLiberarEl) {
-           porLiberarEl.value = formatNum(vAprobado - vFacturado);
+           const diff = vAprobado - vFacturado;
+           porLiberarEl.value = (diff < 0 ? "-" : "") + formatNum(Math.abs(diff));
         }
         
         const admon = contract.porcentajeAdmon || 0;
@@ -515,6 +519,12 @@
            honIvaIncEl.value = formatNum(honAntes * 1.19);
         }
       };
+
+      useEffect(() => {
+        if (isModalOpen) {
+          setTimeout(handleFormChange, 50);
+        }
+      }, [isModalOpen]);
 
       const handleSave = (e) => {
         e.preventDefault();
@@ -647,17 +657,66 @@
         XLSX.writeFile(wb, `Ordenes_${contract.entidad.substring(0,20).replace(/[^a-z0-9]/gi, '_')}.xlsx`);
       };
 
-      const handlePaSubmit = (e) => {
+      // Manejador FETCH PARA POWER AUTOMATE
+      const handlePaSubmit = async (e) => {
         e.preventDefault();
-        const payload = {
-           accion: paAction,
-           contrato: contract.entidad,
-           numeroOrdenPedido: paOrderNum
+        
+        // 1. Buscamos la orden de pedido completa en la base de datos usando el número ingresado
+        const orderKey = dbData.headers.find(h => h.trim().toLowerCase().includes('número orden de pedido'));
+        const foundOrder = ordenesDelContrato.find(o => orderKey && o[orderKey].toString().trim() === paOrderNum.trim());
+
+        if (!foundOrder) {
+           showToast(`No se encontró la orden ${paOrderNum} en este contrato.`, "error");
+           return;
+        }
+
+        // 2. Extraemos los campos solicitados del objeto encontrado, o mandamos "" si no existen
+        const getVal = (searchStr) => {
+           const key = dbData.headers.find(h => h.trim().toLowerCase() === searchStr.toLowerCase());
+           return key && foundOrder[key] !== undefined && foundOrder[key] !== null ? foundOrder[key].toString() : "";
         };
-        console.log("JSON Formado para Power Automate:", JSON.stringify(payload));
-        showToast(`Acción "${paAction}" iniciada para la orden ${paOrderNum}`);
+
+        // 3. Armamos el JSON ampliado (El payload exacto)
+        const payload = {
+           "accion": paAction,
+           "contrato": contract.entidad,
+           "numeroOrdenPedido": paOrderNum,
+           "evento": getVal("evento"),
+           "lugarDelEvento": getVal("lugar del evento"),
+           "estado": getVal("estado"),
+           "contratoProveedor": getVal("contrato proveedor"),
+           "nombreProveedor": getVal("nombre proveedor"),
+           "valorAprobado": getVal("valor aprobado"),
+           "valorFacturado": getVal("valor facturado"),
+           "facturaProveedor": getVal("factura proveedor"),
+           "comprobanteDeEgreso": getVal("comprobante de egreso"),
+           "informeDeEvidencias": getVal("informe de evidencias o actividades"),
+           "estadoInforme": getVal("estado informe de evidencias")
+        };
+        
         setPaAction(null);
         setPaOrderNum("");
+        
+        showToast(`Enviando solicitud para "${payload.accion}"...`);
+        
+        try {
+          const response = await fetch(POWER_AUTOMATE_WEBHOOK_URL, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json'
+            },
+            body: JSON.stringify(payload)
+          });
+          
+          if(response.ok) {
+            showToast(`Acción "${payload.accion}" ejecutada con éxito para la orden ${payload.numeroOrdenPedido}`, "success");
+          } else {
+            showToast(`Error al ejecutar la acción en el servidor.`, "error");
+          }
+        } catch(error) {
+          console.error("Error Power Automate:", error);
+          showToast(`Error de conexión al enviar la acción.`, "error");
+        }
       };
 
       return (
@@ -928,7 +987,7 @@
                       const isAutomaticMath = headerLower.includes("antes de iva") || headerLower.includes("iva incluido") || headerLower.includes("por liberar");
                       const isAutoEjecutivo = headerLower === "ejecutivo";
                       const isAutoNombreProv = headerLower.includes("nombre proveedor");
-                      const isReadOnly = isAutomaticMath || isAutoEjecutivo || isAutoNombreProv || headerLower === "cdp" || headerLower === "rp";
+                      const isReadOnly = isAutomaticMath || isAutoEjecutivo || isAutoNombreProv;
                       
                       const isRequired = COLUMNAS_OBLIGATORIAS.includes(headerLower) && !isReadOnly;
                       
@@ -937,7 +996,7 @@
 
                       let inputType = "text";
                       if (headerLower.includes("fecha")) inputType = "date";
-                      else if (headerLower.includes("cantidad") || headerLower.includes("precio")) inputType = "number";
+                      else if (headerLower.includes("cantidad") || headerLower.includes("precio") || headerLower === "cdp" || headerLower === "rp") inputType = "number";
 
                       return (
                         <div key={h} className={headerLower.includes("observacion") || headerLower.includes("descripci") || headerLower.includes("evento") ? "md:col-span-2 lg:col-span-3" : ""}>
@@ -995,9 +1054,12 @@
                               } 
                               onInput={(e) => {
                                 if (isStrictNumeric) {
+                                  let isNeg = e.target.value.startsWith('-');
                                   let rawValue = e.target.value.replace(/\D/g, '');
-                                  e.target.value = rawValue ? new Intl.NumberFormat('es-CO').format(parseInt(rawValue, 10)) : '';
+                                  let formatted = rawValue ? new Intl.NumberFormat('es-CO').format(parseInt(rawValue, 10)) : '';
+                                  e.target.value = isNeg && formatted ? '-' + formatted : formatted;
                                 }
+                                handleFormChange();
                               }}
                               className={`w-full p-2.5 border border-gray-300 rounded-lg outline-none text-sm transition-colors ${isReadOnly ? 'bg-gray-100 text-gray-500 cursor-not-allowed font-medium' : 'focus:ring-1 focus:ring-[#1a8241] bg-gray-50'}`} 
                             />
