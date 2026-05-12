@@ -694,28 +694,35 @@
         };
         
         const actionNameBackup = paAction; 
+        const orderNumBackup = paOrderNum;
+        
         setPaAction(null);
         setPaOrderNum("");
         
-        showToast(`Enviando solicitud para "${actionNameBackup}"...`);
+        showToast(`Enviando solicitud para la acción "${actionNameBackup}" de la orden ${orderNumBackup}...`);
         
         try {
-          // El modo 'no-cors' es vital para evitar el bloqueo del navegador al enviar a Power Automate directamente.
-          await fetch(POWER_AUTOMATE_WEBHOOK_URL, {
+          // Usamos un fetch estándar (sin no-cors) para enviar los datos con el formato application/json correcto.
+          const response = await fetch(POWER_AUTOMATE_WEBHOOK_URL, {
             method: 'POST',
-            mode: 'no-cors',
             headers: {
               'Content-Type': 'application/json'
             },
             body: JSON.stringify(payload)
           });
           
-          // En modo no-cors el navegador recibe una respuesta "opaca", por lo que asumimos que llegó al servidor si no lanza error de red.
-          showToast(`Su solicitud fue exitosa. La acción "${actionNameBackup}" se envió correctamente.`, "success");
+          // Retraso artificial de 5.5 segundos para la percepción del usuario
+          await new Promise(resolve => setTimeout(resolve, 5500));
+          
+          if(response.ok) {
+            showToast(`Su solicitud fue exitosa. Se envió la acción "${actionNameBackup}" para la orden ${orderNumBackup}.`, "success");
+          } else {
+             showToast(`Error ${response.status} al enviar la acción. Verifica tu flujo en Power Automate.`, "error");
+          }
           
         } catch(error) {
           console.error("Error Power Automate:", error);
-          showToast(`Error al intentar enviar a Power Automate. Revisa tu conexión a internet.`, "error");
+          showToast(`Error al intentar enviar a Power Automate. Revisa tu conexión a internet o la consola (F12).`, "error");
         }
       };
 
