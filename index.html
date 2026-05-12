@@ -442,6 +442,7 @@
       
       const [paAction, setPaAction] = useState(null);
       const [paOrderNum, setPaOrderNum] = useState("");
+      const [paSuccessData, setPaSuccessData] = useState(null);
 
       const formRef = useRef(null);
       const isDirectivo = user.role === 'Directivos';
@@ -712,7 +713,7 @@
           const result = await response.json();
           
           if(result.status === 'success') {
-            showToast(`Su solicitud fue exitosa. Se envió la acción "${actionNameBackup}" para la orden ${orderNumBackup}.`, "success");
+            setPaSuccessData({ action: actionNameBackup, order: orderNumBackup, payload: payload });
           } else {
              showToast(`Error al procesar la acción: ${result.message}`, "error");
           }
@@ -1083,6 +1084,45 @@
               </div>
             </div>
           )}
+
+          {paSuccessData && (
+            <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4 z-[70] anim-fade">
+              <div className="bg-white rounded-2xl w-full max-w-lg shadow-2xl p-6 anim-slide-up max-h-[90vh] flex flex-col">
+                 <div className="flex justify-between items-center mb-4 border-b border-gray-100 pb-3">
+                    <h3 className="font-bold text-gray-800 text-lg flex items-center gap-2">
+                      <i data-lucide="check-circle" className="text-[#1a8241] w-6 h-6"></i> Acción Enviada Exitosamente
+                    </h3>
+                 </div>
+                 <p className="text-sm text-gray-600 mb-4">
+                   La acción <strong className="text-gray-800">{paSuccessData.action}</strong> se ha procesado para la orden <strong className="text-gray-800">{paSuccessData.order}</strong>. A continuación se detallan los datos que fueron enviados:
+                 </p>
+                 
+                 <div className="flex-1 overflow-y-auto bg-gray-50 p-4 rounded-xl border border-gray-200 mb-5 text-sm">
+                   <ul className="space-y-2.5">
+                      {Object.entries(paSuccessData.payload).map(([key, value]) => {
+                         // Formatear la clave para que sea legible (ej. valorFacturado -> Valor Facturado)
+                         const label = key.replace(/([A-Z])/g, ' $1').replace(/^./, str => str.toUpperCase());
+                         return (
+                           <li key={key} className="flex flex-col sm:flex-row sm:justify-between border-b border-gray-200 pb-1.5 last:border-0 last:pb-0">
+                             <span className="font-bold text-gray-500">{label}:</span>
+                             <span className="text-gray-800 font-medium sm:text-right sm:max-w-[60%] break-words">
+                               {value || <em className="text-gray-400 font-normal">No registrado</em>}
+                             </span>
+                           </li>
+                         );
+                      })}
+                   </ul>
+                 </div>
+
+                 <div className="flex justify-end">
+                    <button onClick={() => setPaSuccessData(null)} className="px-6 py-2.5 bg-[#1a8241] text-white rounded-lg text-sm font-bold hover:bg-green-800 transition-colors flex items-center gap-2">
+                      Aceptar
+                    </button>
+                 </div>
+              </div>
+            </div>
+          )}
+
         </div>
       );
     };
