@@ -42,9 +42,6 @@
 
     // --- CONFIGURACIÓN DE BASE DE DATOS Y USUARIOS ---
     const GOOGLE_SHEETS_WEBAPP_URL = "https://script.google.com/macros/s/AKfycbzphjFRhD1cfyY7IPbEJzu-EcT8km_zP36dyWvsLrZvz7KKXTgH0_LyS5tRXMt4Y6c/exec"; 
-    
-    // URL HTTP POST de Power Automate
-    const POWER_AUTOMATE_WEBHOOK_URL = "https://defaulte982e2ab16ea4111b3dff3a537f8d7.16.environment.api.powerplatform.com:443/powerautomate/automations/direct/workflows/96f1f0a21d084c27acde65a8b9b8b85d/triggers/manual/paths/invoke?api-version=1&sp=%2Ftriggers%2Fmanual%2Frun&sv=1.0&sig=tzkuxIsok7SLeODmkFeDNMibiJE2D3IS3LvYjT6fwL4"; 
 
     // Lista de columnas obligatorias
     const COLUMNAS_OBLIGATORIAS = [
@@ -657,7 +654,7 @@
         XLSX.writeFile(wb, `Ordenes_${contract.entidad.substring(0,20).replace(/[^a-z0-9]/gi, '_')}.xlsx`);
       };
 
-      // Manejador FETCH PARA POWER AUTOMATE
+      // Manejador FETCH PARA BACKEND (que luego enviará a POWER AUTOMATE)
       const handlePaSubmit = async (e) => {
         e.preventDefault();
         
@@ -702,27 +699,27 @@
         showToast(`Enviando solicitud para la acción "${actionNameBackup}" de la orden ${orderNumBackup}...`);
         
         try {
-          // Usamos un fetch estándar (sin no-cors) para enviar los datos con el formato application/json correcto.
-          const response = await fetch(POWER_AUTOMATE_WEBHOOK_URL, {
+          // Ahora enviamos la información a NUESTRO backend (Google Apps Script)
+          // para que el backend se encargue de conectarse a Power Automate de forma segura.
+          const response = await fetch(GOOGLE_SHEETS_WEBAPP_URL, {
             method: 'POST',
-            headers: {
-              'Content-Type': 'application/json'
-            },
-            body: JSON.stringify(payload)
+            body: JSON.stringify({ 
+               action: 'trigger_power_automate', 
+               payload: payload 
+            })
           });
           
-          // Retraso artificial de 5.5 segundos para la percepción del usuario
-          await new Promise(resolve => setTimeout(resolve, 5500));
+          const result = await response.json();
           
-          if(response.ok) {
+          if(result.status === 'success') {
             showToast(`Su solicitud fue exitosa. Se envió la acción "${actionNameBackup}" para la orden ${orderNumBackup}.`, "success");
           } else {
-             showToast(`Error ${response.status} al enviar la acción. Verifica tu flujo en Power Automate.`, "error");
+             showToast(`Error al procesar la acción: ${result.message}`, "error");
           }
           
         } catch(error) {
-          console.error("Error Power Automate:", error);
-          showToast(`Error al intentar enviar a Power Automate. Revisa tu conexión a internet o la consola (F12).`, "error");
+          console.error("Error Backend:", error);
+          showToast(`Error de conexión con la base de datos al intentar procesar la acción.`, "error");
         }
       };
 
