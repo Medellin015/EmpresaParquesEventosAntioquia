@@ -45,6 +45,7 @@
 
     // Lista de columnas obligatorias
     const COLUMNAS_OBLIGATORIAS = [
+      "año",
       "importancia estratégica",
       "fecha inicio evento",
       "fecha fin evento",
@@ -462,6 +463,11 @@
         const lowerH = h.trim().toLowerCase();
         return lowerH !== 'id' && lowerH !== 'contrato';
       });
+      
+      const anoIndex = displayHeaders.findIndex(h => h.trim().toLowerCase() === 'año');
+      if (anoIndex > -1) {
+        displayHeaders.unshift(displayHeaders.splice(anoIndex, 1)[0]);
+      }
 
       const openModal = (record = null) => {
         if(isDirectivo) return; 
