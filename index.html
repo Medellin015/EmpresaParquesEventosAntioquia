@@ -537,7 +537,7 @@
         for (let [key, value] of fd.entries()) { 
           const keyLower = key.replace(/\s+/g, ' ').toLowerCase().trim();
           const isStrictNumeric = [
-            "valor facturado", "factura proveedor", "valor honorarios iva incluido",
+            "valor facturado", "valor rp", "valor honorarios iva incluido",
             "honorarios antes de iva", "por liberar", "valor aprobado"
           ].some(n => keyLower.includes(n));
 
@@ -688,7 +688,10 @@
            "facturaProveedor": getVal("factura proveedor"),
            "comprobanteDeEgreso": getVal("comprobante de egreso"),
            "informeDeEvidencias": getVal("informe de evidencias o actividades"),
-           "estadoInforme": getVal("estado informe de evidencias")
+           "estadoInforme": getVal("estado informe de evidencias"),
+           "ano": getVal("año"),
+           "fechaEnvioInforme": getVal("fecha de envío de informe"),
+           "valorRp": getVal("valor rp")
         };
         
         const actionNameBackup = paAction; 
@@ -893,7 +896,7 @@
                               const normalizedH = h.replace(/\s+/g, ' ').toLowerCase();
                               
                               const isStrictNumeric = [
-                                "valor facturado", "factura proveedor", "valor honorarios iva incluido",
+                                "valor facturado", "valor rp", "valor honorarios iva incluido",
                                 "honorarios antes de iva", "por liberar", "valor aprobado"
                               ].some(n => normalizedH.includes(n));
 
@@ -985,7 +988,7 @@
                       const headerLower = h.replace(/\s+/g, ' ').toLowerCase().trim();
                       
                       const isStrictNumeric = [
-                        "valor facturado", "factura proveedor", "valor honorarios iva incluido",
+                        "valor facturado", "valor rp", "valor honorarios iva incluido",
                         "honorarios antes de iva", "por liberar", "valor aprobado"
                       ].some(n => headerLower.includes(n));
 
